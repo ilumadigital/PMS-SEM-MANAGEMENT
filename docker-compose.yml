@@ -1,0 +1,20 @@
+services:
+  # Υπηρεσία Βάσης Δεδομένων (MariaDB)
+  sem-mariadb:
+    image: mariadb:10.11
+    container_name: sem-mariadb
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root_master_password
+      MYSQL_DATABASE: sem_pms_db
+      MYSQL_USER: sem_admin
+      MYSQL_PASSWORD: Leuke26
+    ports:
+      - "3306:3306"
+    volumes:
+      - sem_db_data:/var/lib/mysql
+      # Αυτόματο τρέξιμο του schema.sql κατά την πρώτη εκκίνηση
+      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+
+volumes:
+  sem_db_data:
