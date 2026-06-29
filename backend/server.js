@@ -2,17 +2,25 @@ const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
 const { pool } = require('./config/db');
+const authRoutes = require('./routes/auth.routes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
 const webhookRoutes = require('./routes/webhook.routes');
 
+const receptionRoutes = require('./routes/reception.routes');
+const cleaningRoutes = require('./routes/cleaning.routes');
+
 // --- GLOBAL MIDDLEWARES ---
 app.use(cors());
 app.use(express.json()); // Απαραίτητο για να διαβάζει JSON payloads από Cloudbeds/Hosthub
 // --- API ROUTES ---
 app.use('/api/webhooks', webhookRoutes);
+app.use('/api/auth', authRoutes);
+
+app.use('/api/reception', receptionRoutes);
+app.use('/api/cleaning', cleaningRoutes);
 
 // --- ΔΟΚΙΜΗ ΣΥΝΔΕΣΗΣ ΜΕ MARIADB ---
 async function testDatabaseConnection() {
