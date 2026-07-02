@@ -3,13 +3,12 @@ require('dotenv').config();
 
 // Δημιουργία του Connection Pool με βάση τις μεταβλητές του .env
 const pool = mariadb.createPool({
-     host: process.env.DB_HOST,
-     user: process.env.DB_USER,
-     password: process.env.DB_PASS,
-     database: process.env.DB_NAME,
-     port: parseInt(process.env.DB_PORT) || 3306,
-     connectionLimit: 10, // Μέγιστος αριθμός ταυτόχρονων συνδέσεων
-     acquireTimeout: 10000
+     host: process.env.DB_HOST || 'localhost', 
+     user: process.env.DB_USER || 'root', 
+     password: process.env.DB_PASSWORD || 'root',
+     database: process.env.DB_NAME || 'sem_pms_db',
+     port: process.env.DB_PORT || 3306,
+     connectionLimit: 10
 });
 
 // Helper συνάρτηση για να εκτελούμε queries πεντάκαθαρα στους controllers
