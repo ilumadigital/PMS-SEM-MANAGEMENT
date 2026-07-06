@@ -15,6 +15,7 @@ services:
   backend:
     build: ./backend
     container_name: sem_pms_backend
+    command: node server.js
     ports:
       - "5000:5000"
     volumes:
