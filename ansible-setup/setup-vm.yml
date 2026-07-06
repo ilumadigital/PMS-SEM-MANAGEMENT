@@ -1,0 +1,105 @@
+---
+- name: 🚀 PMS Server Initial Provisioning
+  hosts: pms_server
+  become: yes # Τρέξε τα πάντα ως root
+
+  tasks:
+    - name: 🔄 Update apt cache and upgrade system
+      apt:
+        update_cache: yes
+        upgrade: dist
+
+    - name: 👤 Create 'deployer' user with passwordless sudo
+      user:
+        name: deployer
+        shell: /bin/bash
+        groups: sudo
+        append: yes
+
+    - name: 🔑 Allow deployer to use sudo without password
+      lineinfile:
+        dest: /etc/sudoers
+        regexp: '^deployer'
+        line: 'deployer ALL=(ALL) NOPASSWD: ALL'
+        validate: 'visudo -cf %s'
+
+    - name: 🛡️ Install Firewall (UFW) and Security (Fail2Ban), plus basics
+      apt:
+        name:
+          - ufw
+          - fail2ban
+          - curl
+          - git
+          - apt-transport-https
+          - ca-certificates
+          - gnupg
+        state: present
+
+    - name: 🛡️ Configure Fail2Ban Custom Rules (jail.local)
+      copy:
+        dest: /etc/fail2ban/jail.local
+        content: |
+          [DEFAULT]
+          # Αν κάποιος κάνει 3 λάθη μέσα σε 10 λεπτά (600 sec), τρώει ban για 1 ώρα (3600 sec)
+          bantime  = 3600
+          findtime = 600
+          maxretry = 3
+
+          [sshd]
+          enabled = true
+          port    = 22
+          logpath = %(sshd_log)s
+          backend = %(sshd_backend)s
+      notify: restart fail2ban
+
+    - name: 🧱 Setup UFW rules (Allow SSH, HTTP, HTTPS)
+      ufw:
+        rule: allow
+        port: "{{ item }}"
+      loop:
+        - '22'
+        - '80'
+        - '443'
+
+    - name: 🟢 Enable UFW
+      ufw:
+        state: enabled
+
+    - name: 📁 Ensure apt keyrings directory exists
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+
+    - name: 🐳 Download Docker GPG key
+      get_url:
+        url: https://download.docker.com/linux/debian/gpg
+        dest: /etc/apt/keyrings/docker.asc
+        mode: '0644'
+
+    - name: 📦 Add Docker APT repository
+      apt_repository:
+        repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian {{ ansible_distribution_release }} stable"
+        state: present
+
+    - name: 🚢 Install Docker and Docker Compose
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-compose-plugin
+        state: present
+        update_cache: yes
+
+    - name: 🧑‍🔧 Add deployer user to docker group
+      user:
+        name: deployer
+        groups: docker
+        append: yes
+
+  handlers:
+    - name: restart fail2ban
+      service:
+        name: fail2ban
+        state: restarted
