@@ -31,17 +31,21 @@ jobs:
           script: |
             cd /home/deployer/pms-sem
 
-            echo "Checking frontend package..."
+            echo "Check deployed frontend package.json"
             grep -n "@tailwindcss/vite" frontend/package.json || true
 
-            echo "Rebuilding frontend cleanly..."
+            echo "Check deployed vite.config.js"
+            sed -n '1,80p' frontend/vite.config.js
+
+            echo "Stop and remove old frontend container with volumes"
             docker compose stop frontend || true
             docker compose rm -f -v frontend || true
+
+            echo "Clean rebuild frontend"
             docker compose build --no-cache frontend
-            docker compose up -d frontend
 
-            echo "Starting remaining services..."
-            docker compose up -d
+            echo "Start full stack"
+            docker compose up -d --force-recreate
 
-            echo "Frontend logs:"
-            docker compose logs --tail=80 frontend
+            echo "Frontend logs"
+            docker compose logs --tail=120 frontend

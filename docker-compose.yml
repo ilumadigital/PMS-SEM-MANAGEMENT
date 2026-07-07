@@ -38,14 +38,10 @@ services:
     container_name: sem_pms_frontend
     ports:
       - "5173:5173"
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
     environment:
-      - CHOKIDAR_USEPOLLING=true
-      - VITE_API_URL=https://api.sem-management.com  # <--- ΑΥΤΗ Η ΓΡΑΜΜΗ ΕΛΕΙΠΕ!
+      - VITE_API_URL=https://api.sem-management.com
     depends_on:
-      - backend
+      - backend             
 
 volumes:
   sem_db_data:
