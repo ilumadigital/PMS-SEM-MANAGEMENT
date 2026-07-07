@@ -30,9 +30,18 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             cd /home/deployer/pms-sem
-            
-            # 1. Σβήνουμε με ασφάλεια τα παλιά containers και τυχόν "ζόμπι" references
-            docker compose down --remove-orphans
-            
-            # 2. Σηκώνουμε το stack φρέσκο, αναγκάζοντας τα node_modules να ανανεωθούν (-V)
-            docker compose up -d --build -V
+
+            echo "Checking frontend package..."
+            grep -n "@tailwindcss/vite" frontend/package.json || true
+
+            echo "Rebuilding frontend cleanly..."
+            docker compose stop frontend || true
+            docker compose rm -f -v frontend || true
+            docker compose build --no-cache frontend
+            docker compose up -d frontend
+
+            echo "Starting remaining services..."
+            docker compose up -d
+
+            echo "Frontend logs:"
+            docker compose logs --tail=80 frontend
