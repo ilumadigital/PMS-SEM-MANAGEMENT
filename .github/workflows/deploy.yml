@@ -33,61 +33,27 @@ jobs:
 
             cd /home/deployer/pms-sem
 
-            echo "=========================================="
-            echo "REMOVE STALE POSTCSS CONFIG FILES"
-            echo "=========================================="
+            echo "Remove stale old config files"
             rm -f frontend/postcss.config.js frontend/postcss.config.cjs frontend/postcss.config.mjs
 
-            echo "=========================================="
-            echo "DEPLOYED docker-compose.yml FRONTEND PART"
-            echo "=========================================="
-            sed -n '/frontend:/,/depends_on:/p' docker-compose.yml || true
+            echo "Check frontend Dockerfile"
+            sed -n '1,120p' frontend/Dockerfile
 
-            echo "=========================================="
-            echo "DEPLOYED frontend package.json TAILWIND CHECK"
-            echo "=========================================="
-            grep -n "@tailwindcss/vite" frontend/package.json || true
-            grep -n "tailwindcss" frontend/package.json || true
-            grep -n "vite" frontend/package.json || true
+            echo "Check frontend vite config"
+            sed -n '1,80p' frontend/vite.config.js
 
-            echo "=========================================="
-            echo "DEPLOYED frontend vite.config.js"
-            echo "=========================================="
-            sed -n '1,120p' frontend/vite.config.js || true
-
-            echo "=========================================="
-            echo "CHECK postcss config AFTER DELETE"
-            echo "=========================================="
-            find frontend -maxdepth 2 -name "postcss.config.*" -print || true
-
-            echo "=========================================="
-            echo "STOP AND REMOVE OLD FRONTEND CONTAINER"
-            echo "=========================================="
+            echo "Stop and remove old frontend"
             docker compose stop frontend || true
             docker compose rm -f -v frontend || true
 
-            echo "=========================================="
-            echo "CLEAN REBUILD FRONTEND WITHOUT CACHE"
-            echo "=========================================="
+            echo "Build frontend production image"
             docker compose build --no-cache frontend
 
-            echo "=========================================="
-            echo "START FULL STACK"
-            echo "=========================================="
+            echo "Start full stack"
             docker compose up -d --force-recreate
 
-            echo "=========================================="
-            echo "FRONTEND CONTAINER PACKAGE CHECK"
-            echo "=========================================="
-            docker compose exec -T frontend sh -lc 'node -v && npm -v && npm ls @tailwindcss/vite tailwindcss vite || true'
+            echo "Check running containers"
+            docker compose ps
 
-            echo "=========================================="
-            echo "FRONTEND CONTAINER FILE CHECK"
-            echo "=========================================="
-            docker compose exec -T frontend sh -lc 'sed -n "1,120p" /app/vite.config.js || true'
-            docker compose exec -T frontend sh -lc 'sed -n "1,80p" /app/src/assets/index.css || true'
-
-            echo "=========================================="
-            echo "FRONTEND LOGS"
-            echo "=========================================="
-            docker compose logs --tail=180 frontend
+            echo "Frontend logs"
+            docker compose logs --tail=80 frontend

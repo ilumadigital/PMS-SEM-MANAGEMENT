@@ -1,20 +1,31 @@
-# 1. Χρησιμοποιούμε μια ελαφριά έκδοση του Node.js
-FROM node:20-alpine
+# =========================
+# 1. Build stage
+# =========================
+FROM node:20-alpine AS builder
 
-# 2. Ορίζουμε τον φάκελο εργασίας μέσα στο container
 WORKDIR /app
 
-# 3. Αντιγράφουμε τα αρχεία των ρυθμίσεων
 COPY package*.json ./
 
-# 4. Εγκαθιστούμε τα πακέτα ΜΕΣΑ στο container
 RUN npm install
 
-# 5. Αντιγράφουμε τον υπόλοιπο κώδικα
 COPY . .
 
-# 6. Ανοίγουμε την πόρτα του Vite
-EXPOSE 5173
+ARG VITE_API_URL
+ENV VITE_API_URL=${VITE_API_URL}
 
-# 7. Ξεκινάμε τον Vite server με host flag για να είναι προσβάσιμος απέξω
-CMD ["npm", "run", "dev", "--", "--host"]
+RUN npm run build
+
+
+# =========================
+# 2. Production stage
+# =========================
+FROM nginx:1.27-alpine
+
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+COPY --from=builder /app/dist /usr/share/nginx/html
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]

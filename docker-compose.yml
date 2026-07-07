@@ -1,5 +1,4 @@
 services:
-  # 1. Η Βάση Δεδομένων (MariaDB)
   db:
     image: mariadb:11.2
     container_name: sem_pms_db
@@ -11,16 +10,12 @@ services:
     volumes:
       - sem_db_data:/var/lib/mysql
 
-  # 2. Το Node.js API (Backend)
   backend:
     build: ./backend
     container_name: sem_pms_backend
     command: node server.js
     ports:
       - "5000:5000"
-    volumes:
-      - ./backend:/app
-      - /app/node_modules
     environment:
       - PORT=5000
       - JWT_SECRET=sem_super_secret_key_2026
@@ -32,16 +27,16 @@ services:
     depends_on:
       - db
 
-  # 3. Η React / Vite (Frontend)
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: https://api.sem-management.com
     container_name: sem_pms_frontend
     ports:
-      - "5173:5173"
-    environment:
-      - VITE_API_URL=https://api.sem-management.com
+      - "5173:80"
     depends_on:
-      - backend             
+      - backend
 
 volumes:
   sem_db_data:
