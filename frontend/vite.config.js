@@ -1,7 +1,6 @@
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
 
-// https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
   server: {
@@ -9,6 +8,12 @@ export default defineConfig({
     port: 5173,
     allowedHosts: [
       'pms.sem-management.com'
-    ]
+    ],
+    // ΠΡΟΣΘΗΚΗ: Ρύθμιση για να μην σκάνε τα WebSockets πίσω από Nginx SSL
+    hmr: {
+      host: 'pms.sem-management.com',
+      protocol: 'wss',
+      clientPort: 443
+    }
   }
-});
+})
