@@ -30,5 +30,9 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             cd /home/deployer/pms-sem
-            # Φορτώνουμε τα environment variables αν υπάρχουν .env αρχεία
-            docker compose up -d --build
+            
+            # 1. Σβήνουμε με ασφάλεια τα παλιά containers και τυχόν "ζόμπι" references
+            docker compose down --remove-orphans
+            
+            # 2. Σηκώνουμε το stack φρέσκο, αναγκάζοντας τα node_modules να ανανεωθούν (-V)
+            docker compose up -d --build -V
