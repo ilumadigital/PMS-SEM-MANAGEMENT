@@ -10,10 +10,6 @@ export default defineConfig({
     allowedHosts: [
       'pms.sem-management.com'
     ],
-    hmr: {
-      host: 'pms.sem-management.com',
-      protocol: 'wss',
-      clientPort: 443
-    }
+    hmr: false
   }
 })
