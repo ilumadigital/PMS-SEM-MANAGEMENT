@@ -1,15 +1,15 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   server: {
     host: true,
     port: 5173,
     allowedHosts: [
       'pms.sem-management.com'
     ],
-    // ΠΡΟΣΘΗΚΗ: Ρύθμιση για να μην σκάνε τα WebSockets πίσω από Nginx SSL
     hmr: {
       host: 'pms.sem-management.com',
       protocol: 'wss',
