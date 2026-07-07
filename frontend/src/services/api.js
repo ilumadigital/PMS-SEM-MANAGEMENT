@@ -1,7 +1,10 @@
 import axios from 'axios';
 
+// Αν υπάρχει το VITE_API_URL (στον server) το παίρνει, αλλιώς παίζει τοπικά (στο PC σου)
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+
 const api = axios.create({
-    baseURL: `${import.meta.env.VITE_API_URL}/api`,
+    baseURL: `${API_URL}/api`,
     headers: {
         'Content-Type': 'application/json'
     }

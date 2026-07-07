@@ -1,0 +1,72 @@
+.
+├── README.md
+├── ansible-setup
+│   ├── github_actions_key
+│   ├── github_actions_key.pub
+│   ├── hosts.ini
+│   ├── setup-nginx.yml
+│   ├── setup-users.yml
+│   └── setup-vm.yml
+├── backend
+│   ├── Dockerfile
+│   ├── config
+│   │   └── db.js
+│   ├── controllers
+│   │   ├── auth.controller.js
+│   │   ├── cleaning.controller.js
+│   │   ├── reception.controller.js
+│   │   └── webhook.controller.js
+│   ├── middleware
+│   │   ├── auth.middleware.js
+│   │   └── security.middleware.js
+│   ├── package-lock.json
+│   ├── package.json
+│   ├── routes
+│   │   ├── auth.routes.js
+│   │   ├── cleaning.routes.js
+│   │   ├── reception.routes.js
+│   │   └── webhook.routes.js
+│   ├── server.js
+│   └── services
+│       └── notification.service.js
+├── docker-compose.yml
+├── frontend
+│   ├── Dockerfile
+│   ├── dist
+│   │   ├── assets
+│   │   │   └── index-DE2qaKDB.js
+│   │   ├── index.html
+│   │   ├── logo-icon.png
+│   │   ├── manifest.json
+│   │   └── sw.js
+│   ├── index.html
+│   ├── package-lock.json
+│   ├── package.json
+│   ├── public
+│   │   ├── logo-icon.png
+│   │   ├── manifest.json
+│   │   └── sw.js
+│   ├── src
+│   │   ├── App.jsx
+│   │   ├── assets
+│   │   │   └── index.css
+│   │   ├── components
+│   │   │   ├── Layout.jsx
+│   │   │   ├── Sidebar.jsx
+│   │   │   └── Topbar.jsx
+│   │   ├── context
+│   │   │   └── AuthContext.jsx
+│   │   ├── main.jsx
+│   │   ├── pages
+│   │   │   ├── CleaningMobile.jsx
+│   │   │   ├── Login.jsx
+│   │   │   ├── ManagementDash.jsx
+│   │   │   ├── ReceptionDash.jsx
+│   │   │   └── SupervisorPanel.jsx
+│   │   └── services
+│   │       └── api.js
+│   └── vite.config.js
+├── project_structure.txt
+└── schema.sql
+
+18 directories, 52 files
