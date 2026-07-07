@@ -34,6 +34,11 @@ jobs:
             cd /home/deployer/pms-sem
 
             echo "=========================================="
+            echo "REMOVE STALE POSTCSS CONFIG FILES"
+            echo "=========================================="
+            rm -f frontend/postcss.config.js frontend/postcss.config.cjs frontend/postcss.config.mjs
+
+            echo "=========================================="
             echo "DEPLOYED docker-compose.yml FRONTEND PART"
             echo "=========================================="
             sed -n '/frontend:/,/depends_on:/p' docker-compose.yml || true
@@ -51,7 +56,7 @@ jobs:
             sed -n '1,120p' frontend/vite.config.js || true
 
             echo "=========================================="
-            echo "CHECK postcss config"
+            echo "CHECK postcss config AFTER DELETE"
             echo "=========================================="
             find frontend -maxdepth 2 -name "postcss.config.*" -print || true
 
