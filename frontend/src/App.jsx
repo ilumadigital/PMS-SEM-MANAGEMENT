@@ -1,52 +1,63 @@
 import React, { useContext } from 'react';
+import {
+  BrowserRouter,
+  Routes,
+  Route,
+  Navigate,
+} from 'react-router-dom';
+
 import { AuthProvider, AuthContext } from './context/AuthContext';
 import Login from './pages/Login';
-import ManagementDash from './pages/ManagementDash'; // <-- Κάνουμε import το νέο Dashboard
+import AppShell from './components/AppShell';
 
-const MainLayout = () => {
-    const { user, logout } = useContext(AuthContext);
+import DashboardPage from './pages/DashboardPage';
+import BookingsPage from './pages/BookingsPage';
+import CustomersPage from './pages/CustomersPage';
+import RoomsPage from './pages/RoomsPage';
+import StatisticsPage from './pages/StatisticsPage';
+import SettingsPage from './pages/SettingsPage';
 
-    // Αν δεν έχει γίνει login, δείξε την οθόνη Login
-    if (!user) {
-        return <Login />;
-    }
+import ReceptionDash from './pages/ReceptionDash';
+import SupervisorPanel from './pages/SupervisorPanel';
+import CleaningMobile from './pages/CleaningMobile';
 
-    // Αν έχει γίνει επιτυχές login, δείξε το Dashboard
-    return (
-        <div style={{ position: 'relative' }}>
-            {/* Κουμπί Έξοδου τοποθετημένο πάνω δεξιά πάνω από το Dashboard */}
-            <button 
-                onClick={logout} 
-                style={{ 
-                    position: 'absolute', 
-                    top: '35px', 
-                    right: '30px', 
-                    padding: '8px 16px', 
-                    background: '#ef4444', 
-                    color: 'white', 
-                    border: 'none', 
-                    borderRadius: '6px', 
-                    fontWeight: 'bold', 
-                    cursor: 'pointer',
-                    zIndex: 1000,
-                    boxShadow: '0 4px 6px -1px rgba(0,0,0,0.2)'
-                }}
-            >
-                Έξοδος ({user.firstName})
-            </button>
-            
-            {/* Το νέο εντυπωσιακό UI */}
-            <ManagementDash />
-        </div>
-    );
+const ProtectedApp = () => {
+  const { user } = useContext(AuthContext);
+
+  if (!user) {
+    return <Login />;
+  }
+
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<AppShell />}>
+          <Route index element={<Navigate to="/dashboard" replace />} />
+
+          <Route path="dashboard" element={<DashboardPage />} />
+          <Route path="bookings" element={<BookingsPage />} />
+          <Route path="customers" element={<CustomersPage />} />
+          <Route path="rooms" element={<RoomsPage />} />
+          <Route path="statistics" element={<StatisticsPage />} />
+          <Route path="settings" element={<SettingsPage />} />
+
+          <Route path="reception" element={<ReceptionDash />} />
+          <Route path="supervisor" element={<SupervisorPanel />} />
+          <Route path="cleaning-mobile" element={<CleaningMobile />} />
+        </Route>
+
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      </Routes>
+    </BrowserRouter>
+  );
 };
 
 function App() {
-    return (
-        <AuthProvider>
-            <MainLayout />
-        </AuthProvider>
-    );
+  return (
+    <AuthProvider>
+      <ProtectedApp />
+    </AuthProvider>
+  );
 }
 
 export default App;
