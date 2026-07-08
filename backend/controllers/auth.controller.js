@@ -114,4 +114,28 @@ const verify2FA = async (req, res) => {
     }
 };
 
-module.exports = { login, verify2FA };
+// --- 3. CLOUDBEDS OAUTH CALLBACK ---
+const cloudbedsCallback = async (req, res) => {
+    const { code } = req.query; // Εδώ έρχεται ο κωδικός από το Cloudbeds
+
+    try {
+        if (!code) {
+            return res.status(400).send("Δεν βρέθηκε κωδικός έγκρισης από το Cloudbeds.");
+        }
+
+        console.log(`✅ [CLOUDBEDS OAuth] Λήφθηκε auth code: ${code}`);
+
+        // 1. Εδώ μελλοντικά θα κάνουμε ένα Axios POST στο Cloudbeds για να αλλάξουμε το 'code' με 'access_token'
+        // 2. Θα αποθηκεύσουμε το access_token στη βάση μας (MariaDB) συνδεδεμένο με το ξενοδοχείο
+        
+        // Μόλις τελειώσουν όλα, στέλνουμε τον χρήστη πίσω στο Frontend Dashboard του
+        res.redirect('https://pms.sem-management.com/?cloudbeds=success');
+
+    } catch (error) {
+        console.error('❌ [CLOUDBEDS ERROR]:', error);
+        res.status(500).send("Σφάλμα κατά την επικοινωνία με το Cloudbeds");
+    }
+};
+
+// 🚀 Προσθέσαμε το cloudbedsCallback στα exports!
+module.exports = { login, verify2FA, cloudbedsCallback };

@@ -4,5 +4,6 @@ const authController = require('../controllers/auth.controller');
 
 router.post('/login', authController.login);
 router.post('/verify-2fa', authController.verify2FA);
+router.get('/cloudbeds/callback', authController.cloudbedsCallback);
 
 module.exports = router;
