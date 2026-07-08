@@ -19,9 +19,9 @@ export const properties = [
     totalRooms: 14,
   },
   {
-    id: 'georgali-residence',
-    name: 'Georgali Residence',
-    code: 'GRG',
+    id: 'ath-suites',
+    name: 'ATH Airport Suites',
+    code: 'ATH',
     type: 'Residence',
     location: 'East Attica',
     totalRooms: 11,
