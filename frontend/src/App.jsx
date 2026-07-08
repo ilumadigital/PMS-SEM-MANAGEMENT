@@ -21,6 +21,8 @@ import ReceptionDash from './pages/ReceptionDash';
 import SupervisorPanel from './pages/SupervisorPanel';
 import CleaningMobile from './pages/CleaningMobile';
 
+import ShuttlePage from './pages/ShuttlePage';
+
 const ProtectedApp = () => {
   const { user } = useContext(AuthContext);
 
@@ -44,6 +46,7 @@ const ProtectedApp = () => {
           <Route path="reception" element={<ReceptionDash />} />
           <Route path="supervisor" element={<SupervisorPanel />} />
           <Route path="cleaning-mobile" element={<CleaningMobile />} />
+          <Route path="shuttle" element={<ShuttlePage />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/dashboard" replace />} />

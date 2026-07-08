@@ -8,6 +8,7 @@ const navigation = [
   { to: '/bookings', label: 'Bookings', eyebrow: 'Reservations' },
   { to: '/customers', label: 'Guests', eyebrow: 'Profiles' },
   { to: '/rooms', label: 'Rooms', eyebrow: 'Inventory' },
+  { to: '/shuttle', label: 'Shuttle', eyebrow: 'Transfers' },
   { to: '/cleaning-mobile', label: 'Housekeeping', eyebrow: 'Cleaning' },
   { to: '/supervisor', label: 'Supervisor', eyebrow: 'Operations' },
   { to: '/statistics', label: 'Insights', eyebrow: 'Performance' },
