@@ -22,7 +22,7 @@ export const properties = [
     id: 'ath-suites',
     name: 'ATH Airport Suites',
     code: 'ATH',
-    type: 'Residence',
+    type: 'Suites',
     location: 'East Attica',
     totalRooms: 11,
   },
