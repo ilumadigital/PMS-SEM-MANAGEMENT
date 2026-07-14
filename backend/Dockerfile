@@ -16,5 +16,5 @@ COPY . .
 # 6. Ανοίγουμε την πόρτα του API (Port 5000)
 EXPOSE 5000
 
-# 7. Ξεκινάμε τον server σε development mode (π.χ. με nodemon)
-CMD ["npm", "run", "dev"]
+# 7. Ξεκινάμε τον server σε production mode
+CMD ["npm", "run", "start"]

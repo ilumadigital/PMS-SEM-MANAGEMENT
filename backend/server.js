@@ -29,9 +29,8 @@ async function testDatabaseConnection() {
         conn = await pool.getConnection();
         console.log('✅ [DATABASE] Επιτυχής σύνδεση στη MariaDB (Docker Container)!');
     } catch (err) {
-        console.error('❌ [DATABASE] Αδυναμία σύνδεσης στη βάση δεδομένων:', err.message);
-        console.error('Σιγουρευτείτε ότι το Docker Container τρέχει κανονικά.');
-        process.exit(1); // Κλείσιμο του server αν δεν υπάρχει βάση δεδομένων
+        console.warn('⚠️ [DATABASE] Αδυναμία σύνδεσης στη βάση δεδομένων:', err.message);
+        console.warn('Η υπηρεσία θα συνεχίσει να τρέχει και το callback endpoint θα είναι διαθέσιμο, αλλά οι λειτουργίες που χρειάζονται DB θα είναι προσωρινά μη διαθέσιμες.');
     } finally {
         if (conn) conn.release();
     }
@@ -50,5 +49,6 @@ app.get('/api/test', (req, res) => {
 
 // --- ΕΚΚΙΝΗΣΗ SERVER ---
 app.listen(PORT, () => {
-    console.log(`🚀 [SERVER] Running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
+    const envMode = process.env.NODE_ENV || 'production';
+    console.log(`🚀 [SERVER] Running in ${envMode} mode on port ${PORT}`);
 });
