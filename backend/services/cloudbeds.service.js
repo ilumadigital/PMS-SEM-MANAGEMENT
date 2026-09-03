@@ -292,19 +292,23 @@ async function getStoredIntegration() {
 }
 
 async function getApiKey() {
+    // Prefer the API key delivered by the property that most recently
+    // authorized the SEM app. A static CLOUDBEDS_API_KEY is only a fallback
+    // for local/manual development. Otherwise an old env key can silently
+    // point the PMS at a different property than the one just connected.
+    const integration = await getStoredIntegration();
+    if (integration) {
+        return decryptSecret(integration);
+    }
+
     if (process.env.CLOUDBEDS_API_KEY) {
         return process.env.CLOUDBEDS_API_KEY.trim();
     }
 
-    const integration = await getStoredIntegration();
-    if (!integration) {
-        const error = new Error('Cloudbeds sandbox is not connected yet.');
-        error.code = 'CLOUDBEDS_NOT_CONNECTED';
-        error.status = 409;
-        throw error;
-    }
-
-    return decryptSecret(integration);
+    const error = new Error('Cloudbeds sandbox is not connected yet.');
+    error.code = 'CLOUDBEDS_NOT_CONNECTED';
+    error.status = 409;
+    throw error;
 }
 
 async function exchangeAuthorizationCode(code) {
@@ -367,7 +371,7 @@ async function getConnectionStatus() {
         return {
             connected: true,
             environment: ENVIRONMENT,
-            source: process.env.CLOUDBEDS_API_KEY ? 'environment' : 'automatic_delivery',
+            source: stored ? 'automatic_delivery' : 'environment',
             properties,
             lastSyncAt: stored?.last_sync_at || null,
             lastWebhookAt: stored?.last_webhook_at || null,
