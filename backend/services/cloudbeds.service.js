@@ -884,12 +884,25 @@ function normalizeStatus(status) {
 }
 
 function normalizeReservation(reservation) {
+    const guestListEntries =
+        reservation.guestList && !Array.isArray(reservation.guestList) && typeof reservation.guestList === 'object'
+            ? Object.values(reservation.guestList)
+            : asArray(reservation.guestList);
+
     const guestCollection = [
         ...asArray(reservation.guests),
-        ...asArray(reservation.guestList),
+        ...guestListEntries,
         ...asArray(reservation.guestDetails),
     ];
-    const primaryGuest = guestCollection[0] || reservation.guest || reservation.primaryGuest || {};
+
+    const mainGuestId = String(pick(reservation, ['guestID', 'guestId'], '') || '');
+    const primaryGuest =
+        guestCollection.find((guest) => String(pick(guest, ['guestID', 'guestId'], '')) === mainGuestId) ||
+        guestCollection.find((guest) => pick(guest, ['isMainGuest'], false)) ||
+        guestCollection[0] ||
+        reservation.guest ||
+        reservation.primaryGuest ||
+        {};
 
     const firstName = pick(reservation, [
         'guestFirstName',
@@ -983,6 +996,20 @@ function normalizeReservation(reservation) {
         ),
         syncStatus: 'synced',
         syncEvent: 'live_cloudbeds',
+        guestId: String(
+            pick(
+                reservation,
+                ['guestID', 'guestId'],
+                pick(primaryGuest, ['guestID', 'guestId'], '')
+            ) || ''
+        ),
+        profileId: String(
+            pick(
+                reservation,
+                ['profileID', 'profileId'],
+                pick(primaryGuest, ['profileID', 'profileId'], '')
+            ) || ''
+        ),
         guestName,
         guestEmail,
         guestPhone,
@@ -1007,7 +1034,15 @@ function normalizeReservation(reservation) {
         shuttleRequestId: null,
         missingFields,
         bookingDate: pick(reservation, ['dateCreated', 'bookingDate', 'createdAt'], ''),
-        nights: pick(reservation, ['nights'], null),
+        nights: (() => {
+            const explicit = pick(reservation, ['nights'], null);
+            if (explicit !== null && explicit !== undefined && explicit !== '') return Number(explicit);
+            const start = pick(reservation, ['startDate', 'checkInDate'], '');
+            const end = pick(reservation, ['endDate', 'checkOutDate'], '');
+            if (!start || !end) return null;
+            const diff = Math.round((new Date(`${end}T12:00:00Z`) - new Date(`${start}T12:00:00Z`)) / 86400000);
+            return Number.isFinite(diff) && diff >= 0 ? diff : null;
+        })(),
         totalPrice: pick(reservation, ['total', 'grandTotal', 'reservationTotal'], null),
         cloudbedsSource: pick(reservation, ['sourceName', 'source', 'bookingSource'], ''),
         property: {
