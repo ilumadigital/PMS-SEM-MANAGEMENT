@@ -79,7 +79,17 @@ const callback = async (req, res) => {
         const result = await cloudbedsService.exchangeAuthorizationCode(code, state);
         const propertyNames = (result.properties || []).map((property) => property.name).join(', ');
         const missingScopes = result.diagnostics?.missingScopes || [];
+        const tokenResources = result.tokenResources || [];
+        const tokenResourceLabel = tokenResources
+            .map((resource) => `${resource.type}:${resource.id}`)
+            .join(', ');
         const isReady = result.ready === true;
+        const noPropertyBinding = !result.propertyResourceCaptured && !(result.properties || []).length;
+        const guidance = missingScopes.length
+            ? `The Cloudbeds property did not grant these PMS permissions: ${missingScopes.join(', ')}. Update the Permission Scopes in the Cloudbeds Partner App, then disconnect and reconnect the app.`
+            : noPropertyBinding
+                ? 'Cloudbeds issued the API key without a usable property binding and none of the PMS endpoints returned property data. Verify the Partner App permission scopes and authorize with an administrator property user who has API & Integrations access.'
+                : 'The API session is authorized, but the property returned no PMS records. Verify the Partner App permission scopes and the authorizing Cloudbeds user access.';
 
         return res.status(200).send(`
             <!doctype html>
@@ -93,12 +103,14 @@ const callback = async (req, res) => {
                 <main style="max-width:760px;margin:80px auto;padding:32px;border:1px solid #2f2f2f;border-radius:20px;background:#151515">
                   <div style="font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#c9a46a">SEM PMS · Cloudbeds</div>
                   <h1 style="margin-top:18px">${isReady ? 'Sandbox connected and PMS data verified' : 'Authorization completed, but PMS data is not ready'}</h1>
-                  <p style="line-height:1.7;color:#c9c4bc">Property: <strong style="color:#fff">${escapeHtml(propertyNames || 'Property ID will be discovered from PMS data')}</strong></p>
+                  <p style="line-height:1.7;color:#c9c4bc">Property: <strong style="color:#fff">${escapeHtml(propertyNames || 'Not discovered')}</strong></p>
+                  <p style="line-height:1.7;color:#c9c4bc">Token resources: <strong style="color:#fff">${escapeHtml(tokenResourceLabel || 'None returned')}</strong></p>
                   ${
                     isReady
                       ? '<p style="line-height:1.7;color:#c9c4bc">Reservations, guests, rooms and operational data can now be loaded from Cloudbeds.</p>'
                       : `<p style="line-height:1.7;color:#f0d6a5">Cloudbeds issued an API key, but the required PMS resources could not all be verified.</p>
-                         <p style="line-height:1.7;color:#c9c4bc">Missing permissions: <strong style="color:#fff">${escapeHtml(missingScopes.join(', ') || 'No data returned by the authorized property')}</strong></p>
+                         <p style="line-height:1.7;color:#c9c4bc">Detected missing permissions: <strong style="color:#fff">${escapeHtml(missingScopes.join(', ') || 'None explicitly reported')}</strong></p>
+                         <p style="line-height:1.7;color:#f0d6a5">${escapeHtml(guidance)}</p>
                          <p style="line-height:1.7;color:#c9c4bc">Required for the full SEM PMS: <strong style="color:#fff">${escapeHtml((result.requiredScopes || []).join(', '))}</strong></p>`
                   }
                   <a href="${escapeHtml(cloudbedsService.FRONTEND_URL)}" style="display:inline-block;margin-top:18px;padding:14px 18px;border-radius:12px;background:#c9a46a;color:#111;text-decoration:none;font-weight:700">Open SEM PMS</a>

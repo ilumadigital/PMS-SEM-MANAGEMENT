@@ -82,8 +82,9 @@ const AppShell = () => {
 
   const currentTitle = routeTitles[location.pathname] || 'SEM PMS';
   const cloudbedsReady = cloudbeds.status?.connected && cloudbeds.status?.dataStatus === 'ready';
+  const cloudbedsAuthorized = cloudbeds.status?.authorized || cloudbeds.status?.connected;
   const cloudbedsConnected = cloudbeds.status?.connected;
-  const cloudbedsChecking = cloudbedsConnected && !cloudbeds.status?.dataStatus;
+  const cloudbedsChecking = cloudbedsAuthorized && !cloudbeds.status?.dataStatus;
 
   const sidebar = (
     <div className="flex h-full flex-col bg-slate-950 text-slate-200">
@@ -169,7 +170,7 @@ const AppShell = () => {
             <div className="hidden text-xs text-slate-500 sm:block">
               {cloudbedsReady
                 ? 'Live Cloudbeds sandbox data'
-                : cloudbedsConnected
+                : cloudbedsAuthorized
                   ? 'Cloudbeds authorized · PMS data validation in progress'
                   : 'Cloudbeds connection required'}
             </div>
@@ -181,7 +182,7 @@ const AppShell = () => {
                 ? 'border-rose-200 bg-rose-50 text-rose-700'
                 : cloudbedsReady
                   ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                  : cloudbedsConnected
+                  : cloudbedsAuthorized
                     ? 'border-amber-200 bg-amber-50 text-amber-700'
                     : 'border-slate-200 bg-slate-50 text-slate-600'
             }`}>
@@ -190,7 +191,7 @@ const AppShell = () => {
                   ? 'bg-rose-500'
                   : cloudbedsReady
                     ? 'bg-emerald-500'
-                    : cloudbedsConnected
+                    : cloudbedsAuthorized
                       ? 'bg-amber-500'
                       : 'bg-slate-400'
               }`} />
@@ -200,8 +201,8 @@ const AppShell = () => {
                   ? 'Cloudbeds synced'
                   : cloudbedsChecking
                     ? 'Connected · checking data'
-                    : cloudbedsConnected
-                      ? 'Connected · action needed'
+                    : cloudbedsAuthorized
+                      ? 'Authorized · PMS access needed'
                       : 'Not connected'}
             </div>
 

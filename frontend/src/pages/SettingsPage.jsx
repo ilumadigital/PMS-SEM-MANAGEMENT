@@ -49,9 +49,10 @@ const SettingsPage = () => {
     };
   }, []);
 
+  const authorized = Boolean(status?.authorized || status?.connected);
   const connected = Boolean(status?.connected);
   const ready = connected && status?.dataStatus === 'ready';
-  const checking = connected && !status?.dataStatus;
+  const checking = authorized && !status?.dataStatus;
   const missingScopes = diagnostics?.missingScopes || [];
   const propertyIds = status?.connectedPropertyIds || [];
   const requiredScopes = runtime?.requiredScopes || status?.requiredScopes || [];
@@ -60,7 +61,7 @@ const SettingsPage = () => {
     ? 'error'
     : ready
       ? 'healthy'
-      : connected
+      : authorized
         ? 'review'
         : 'not connected';
 
@@ -78,7 +79,7 @@ const SettingsPage = () => {
             >
               {loading ? 'Checking…' : 'Test sync'}
             </button>
-            {connected ? (
+            {authorized ? (
               <button
                 onClick={reauthorize}
                 className="rounded-lg bg-amber-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-amber-700"
@@ -111,20 +112,21 @@ const SettingsPage = () => {
         <MetricCard label="Housekeeping" value={loading ? '…' : housekeeping.length} />
         <MetricCard
           label="Sync state"
-          value={ready ? 'Ready' : checking ? 'Checking' : connected ? 'Review' : 'Offline'}
-          tone={ready ? 'green' : connected ? 'amber' : 'default'}
+          value={ready ? 'Ready' : checking ? 'Checking' : authorized ? 'Review' : 'Offline'}
+          tone={ready ? 'green' : authorized ? 'amber' : 'default'}
         />
       </div>
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.1fr_0.9fr]">
         <Panel title="Cloudbeds connection" description="Verified app session and automatic API-key delivery.">
           <div className="space-y-4 p-5">
-            <Row label="App state" value={<StatusBadge status={connectionStatus} />} />
+            <Row label="SEM readiness" value={<StatusBadge status={connectionStatus} />} />
+            <Row label="Authorized session" value={authorized ? 'Yes' : 'No'} />
             <Row label="Cloudbeds app state" value={status?.appState || 'unknown'} />
             <Row label="Connection verified" value={status?.connectionVerified ? 'Yes' : 'No'} />
             <Row label="Credential source" value={status?.source || 'None'} />
             <Row label="Environment" value={status?.environment || runtime?.environment || 'sandbox'} />
-            <Row label="Data status" value={status?.dataStatus || (connected ? 'checking' : 'offline')} />
+            <Row label="Data status" value={status?.dataStatus || (authorized ? 'checking' : 'offline')} />
             <Row label="Property IDs" value={propertyIds.join(', ') || 'Not discovered'} />
             <Row label="API target" value={status?.cloudbedsApiBase || diagnostics?.chosenApiBase || runtime?.apiBase || '—'} />
             <Row label="Reservation endpoint" value={status?.cloudbedsReservationEndpoint || diagnostics?.reservationEndpoint || '—'} />
@@ -137,7 +139,7 @@ const SettingsPage = () => {
               >
                 Test live API
               </button>
-              {connected && (
+              {authorized && (
                 <>
                   <button
                     onClick={reauthorize}
@@ -196,7 +198,7 @@ const SettingsPage = () => {
         </div>
       </Panel>
 
-      {connected && !ready && (
+      {authorized && !ready && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-5">
           <div className="text-sm font-semibold text-amber-900">
             The app session exists, but SEM PMS data is not fully verified.

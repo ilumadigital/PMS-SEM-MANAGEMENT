@@ -169,7 +169,7 @@ export const CloudbedsDataProvider = ({ children }) => {
       const nextStatus = statusResponse.data;
       setStatus(nextStatus);
 
-      if (!nextStatus.connected) {
+      if (!nextStatus.authorized && !nextStatus.connected) {
         setReservations([]);
         setProperties([]);
         setRooms([]);
@@ -203,7 +203,8 @@ export const CloudbedsDataProvider = ({ children }) => {
         ...(current || {}),
         ...data,
         diagnostics: data.diagnostics || null,
-        connected: true,
+        authorized: true,
+        connected: data.dataStatus === 'ready',
       }));
     } catch (requestError) {
       setError(
@@ -241,6 +242,7 @@ export const CloudbedsDataProvider = ({ children }) => {
       setDiagnostics(null);
       setStatus({
         connected: false,
+        authorized: false,
         connectionVerified: true,
         appState: 'disabled',
         environment: status?.environment || 'sandbox',
@@ -272,6 +274,7 @@ export const CloudbedsDataProvider = ({ children }) => {
       setDiagnostics(null);
       setStatus({
         connected: false,
+        authorized: false,
         connectionVerified: true,
         appState: 'disabled',
         environment: status?.environment || 'sandbox',

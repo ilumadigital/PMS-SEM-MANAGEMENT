@@ -351,13 +351,13 @@ async function saveIntegration(apiKey, properties = []) {
     await db.query(
         `INSERT INTO integration_credentials
             (provider, environment, api_key_ciphertext, api_key_iv, api_key_tag, properties_json, status, connected_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'connected', NOW())
+         VALUES (?, ?, ?, ?, ?, ?, 'authorized', NOW())
          ON DUPLICATE KEY UPDATE
             api_key_ciphertext = VALUES(api_key_ciphertext),
             api_key_iv = VALUES(api_key_iv),
             api_key_tag = VALUES(api_key_tag),
             properties_json = VALUES(properties_json),
-            status = 'connected',
+            status = 'authorized',
             connected_at = NOW()`,
         [
             PROVIDER,
@@ -669,6 +669,12 @@ async function exchangeAuthorizationCode(code, state) {
         throw error;
     }
 
+    const tokenResources = asArray(tokenPayload?.resources)
+        .filter((resource) => resource?.type && resource?.id)
+        .map((resource) => ({
+            type: String(resource.type),
+            id: String(resource.id),
+        }));
     const properties = propertiesFromTokenResources(tokenPayload?.resources);
     await saveIntegration(apiKey, properties);
 
@@ -684,6 +690,8 @@ async function exchangeAuthorizationCode(code, state) {
             ready: false,
             validationError: safeError(error),
             requiredScopes: REQUIRED_SCOPES,
+            tokenResources,
+            propertyResourceCaptured: properties.length > 0,
         };
     }
 
@@ -695,6 +703,8 @@ async function exchangeAuthorizationCode(code, state) {
         requiresReauthorization: snapshot.requiresReauthorization,
         diagnostics: snapshot.diagnostics,
         requiredScopes: REQUIRED_SCOPES,
+        tokenResources,
+        propertyResourceCaptured: properties.length > 0,
     };
 }
 
@@ -758,12 +768,21 @@ async function getConnectionStatus() {
         };
     }
 
-    const connected = verification.verified && verification.appState === 'enabled';
+    const authorized = verification.verified && verification.appState === 'enabled';
+    const dataStatus =
+        stored?.status === 'ready'
+            ? 'ready'
+            : stored?.status === 'needs_attention'
+                ? 'empty'
+                : null;
+    const connected = authorized && dataStatus === 'ready';
 
     return {
         connected,
+        authorized,
         connectionVerified: verification.verified,
         appState: verification.appState,
+        dataStatus,
         environment: ENVIRONMENT,
         source: stored ? 'automatic_delivery' : 'environment',
         properties,
@@ -1961,14 +1980,6 @@ async function listPmsSnapshot() {
             ? dashboardResult.totals
             : fallbackDashboard(reservations, rooms);
 
-    await ensureTables();
-    await db.query(
-        `UPDATE integration_credentials
-         SET properties_json = ?, last_sync_at = NOW()
-         WHERE provider = ? AND environment = ?`,
-        [JSON.stringify(properties), PROVIDER, ENVIRONMENT]
-    );
-
     const allAttempts = [
         ...resources.attempts,
         ...fetched.attempts,
@@ -2001,6 +2012,21 @@ async function listPmsSnapshot() {
         !hasPmsData &&
         finalPropertyIds.length === 0 &&
         initialPropertyIds.length === 0;
+
+    await ensureTables();
+    await db.query(
+        `UPDATE integration_credentials
+         SET properties_json = ?,
+             status = ?,
+             last_sync_at = NOW()
+         WHERE provider = ? AND environment = ?`,
+        [
+            JSON.stringify(properties),
+            hasPmsData ? 'ready' : 'needs_attention',
+            PROVIDER,
+            ENVIRONMENT,
+        ]
+    );
 
     return {
         environment: ENVIRONMENT,
