@@ -227,6 +227,66 @@ export const CloudbedsDataProvider = ({ children }) => {
     window.location.assign(`${apiOrigin}/api/integrations/cloudbeds/connect`);
   }, []);
 
+  const reauthorize = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError('');
+      await api.post('/integrations/cloudbeds/disconnect');
+      setReservations([]);
+      setProperties([]);
+      setRooms([]);
+      setCustomers([]);
+      setHousekeeping([]);
+      setDashboard(null);
+      setDiagnostics(null);
+      setStatus({
+        connected: false,
+        connectionVerified: true,
+        appState: 'disabled',
+        environment: status?.environment || 'sandbox',
+      });
+
+      const apiOrigin = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      window.location.assign(`${apiOrigin}/api/integrations/cloudbeds/connect`);
+    } catch (requestError) {
+      setLoading(false);
+      setError(
+        requestError.response?.data?.message ||
+          requestError.message ||
+          'Could not disconnect the existing Cloudbeds session before reauthorization.'
+      );
+    }
+  }, [status?.environment]);
+
+  const disconnect = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError('');
+      await api.post('/integrations/cloudbeds/disconnect');
+      setReservations([]);
+      setProperties([]);
+      setRooms([]);
+      setCustomers([]);
+      setHousekeeping([]);
+      setDashboard(null);
+      setDiagnostics(null);
+      setStatus({
+        connected: false,
+        connectionVerified: true,
+        appState: 'disabled',
+        environment: status?.environment || 'sandbox',
+      });
+    } catch (requestError) {
+      setError(
+        requestError.response?.data?.message ||
+          requestError.message ||
+          'Could not disconnect Cloudbeds.'
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [status?.environment]);
+
   const derived = useMemo(() => buildDerivedData(reservations), [reservations]);
 
   const effectiveProperties = properties.length ? properties : derived.properties;
@@ -247,6 +307,8 @@ export const CloudbedsDataProvider = ({ children }) => {
       error,
       refresh,
       connect,
+      reauthorize,
+      disconnect,
     }),
     [
       reservations,
@@ -261,6 +323,8 @@ export const CloudbedsDataProvider = ({ children }) => {
       error,
       refresh,
       connect,
+      reauthorize,
+      disconnect,
     ]
   );
 

@@ -33,20 +33,27 @@ jobs:
 
             cd /home/deployer/pms-sem
 
-            test -f /home/deployer/pms-secrets/backend.env || { echo "/home/deployer/pms-secrets/backend.env is missing on VPS"; exit 1; }
+            ENV_FILE=/home/deployer/pms-secrets/backend.env
+            test -f "$ENV_FILE" || { echo "$ENV_FILE is missing on VPS"; exit 1; }
+
+            echo "Validate Cloudbeds automatic-delivery configuration"
+            for VAR in CLOUDBEDS_CLIENT_ID CLOUDBEDS_CLIENT_SECRET CLOUDBEDS_REDIRECT_URI; do
+              grep -Eq "^${VAR}=.+" "$ENV_FILE" || { echo "Missing required Cloudbeds variable: $VAR"; exit 1; }
+            done
+
+            if grep -Eq '^CLOUDBEDS_ENVIRONMENT=.+' "$ENV_FILE" && ! grep -Eq '^CLOUDBEDS_ENVIRONMENT=sandbox$' "$ENV_FILE"; then
+              echo "CLOUDBEDS_ENVIRONMENT must be sandbox for this deployment"
+              exit 1
+            fi
+
+            grep -Eq '^CLOUDBEDS_REDIRECT_URI=https://api\.sem-management\.com/api/integrations/cloudbeds/callback$' "$ENV_FILE" || { echo "CLOUDBEDS_REDIRECT_URI does not match the production callback URL"; exit 1; }
+
+            if grep -Eq '^CLOUDBEDS_API_KEY=.+' "$ENV_FILE" && ! grep -Eq '^CLOUDBEDS_ALLOW_ENV_API_KEY=true$' "$ENV_FILE"; then
+              echo "Note: CLOUDBEDS_API_KEY is present but will be ignored; automatic delivery is authoritative."
+            fi
 
             echo "Remove stale old config files"
             rm -f frontend/postcss.config.js frontend/postcss.config.cjs frontend/postcss.config.mjs
-
-            echo "Check frontend Dockerfile"
-            sed -n '1,120p' frontend/Dockerfile
-
-            echo "Check frontend vite config"
-            sed -n '1,80p' frontend/vite.config.js
-
-            echo "Stop and remove old frontend"
-            docker compose stop frontend || true
-            docker compose rm -f -v frontend || true
 
             echo "Build backend and frontend production images"
             docker compose build --no-cache backend frontend
@@ -56,6 +63,9 @@ jobs:
 
             echo "Check running containers"
             docker compose ps
+
+            echo "Backend logs"
+            docker compose logs --tail=120 backend
 
             echo "Frontend logs"
             docker compose logs --tail=80 frontend
