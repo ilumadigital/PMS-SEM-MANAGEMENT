@@ -151,6 +151,12 @@ const buildDerivedData = (reservations) => {
 
 export const CloudbedsDataProvider = ({ children }) => {
   const [reservations, setReservations] = useState([]);
+  const [properties, setProperties] = useState([]);
+  const [rooms, setRooms] = useState([]);
+  const [customers, setCustomers] = useState([]);
+  const [housekeeping, setHousekeeping] = useState([]);
+  const [dashboard, setDashboard] = useState(null);
+  const [diagnostics, setDiagnostics] = useState(null);
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -165,14 +171,38 @@ export const CloudbedsDataProvider = ({ children }) => {
 
       if (!nextStatus.connected) {
         setReservations([]);
+        setProperties([]);
+        setRooms([]);
+        setCustomers([]);
+        setHousekeeping([]);
+        setDashboard(null);
+        setDiagnostics(null);
         return;
       }
 
-      const reservationsResponse = await api.get('/integrations/cloudbeds/reservations');
-      setReservations(reservationsResponse.data.reservations || []);
+      let data;
+      try {
+        const snapshotResponse = await api.get('/integrations/cloudbeds/snapshot');
+        data = snapshotResponse.data;
+      } catch (snapshotError) {
+        // Rolling-deploy fallback: older backend versions only expose /reservations.
+        if (snapshotError.response?.status !== 404) throw snapshotError;
+        const reservationsResponse = await api.get('/integrations/cloudbeds/reservations');
+        data = reservationsResponse.data;
+      }
+
+      setReservations(data.reservations || []);
+      setProperties(data.properties || []);
+      setRooms(data.rooms || []);
+      setCustomers(data.guests || []);
+      setHousekeeping(data.housekeeping || []);
+      setDashboard(data.dashboard || null);
+      setDiagnostics(data.diagnostics || null);
+
       setStatus((current) => ({
         ...(current || {}),
-        ...reservationsResponse.data,
+        ...data,
+        diagnostics: data.diagnostics || null,
         connected: true,
       }));
     } catch (requestError) {
@@ -199,19 +229,39 @@ export const CloudbedsDataProvider = ({ children }) => {
 
   const derived = useMemo(() => buildDerivedData(reservations), [reservations]);
 
+  const effectiveProperties = properties.length ? properties : derived.properties;
+  const effectiveRooms = rooms.length ? rooms : derived.rooms;
+  const effectiveCustomers = customers.length ? customers : derived.customers;
+
   const value = useMemo(
     () => ({
       reservations,
-      properties: derived.properties,
-      rooms: derived.rooms,
-      customers: derived.customers,
+      properties: effectiveProperties,
+      rooms: effectiveRooms,
+      customers: effectiveCustomers,
+      housekeeping,
+      dashboard,
+      diagnostics,
       status,
       loading,
       error,
       refresh,
       connect,
     }),
-    [reservations, derived, status, loading, error, refresh, connect]
+    [
+      reservations,
+      effectiveProperties,
+      effectiveRooms,
+      effectiveCustomers,
+      housekeeping,
+      dashboard,
+      diagnostics,
+      status,
+      loading,
+      error,
+      refresh,
+      connect,
+    ]
   );
 
   return (
