@@ -3,6 +3,14 @@ import api from '../services/api';
 
 export const CloudbedsDataContext = createContext(null);
 
+const localDateKey = () => {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 const buildDerivedData = (reservations) => {
   const propertyMap = new Map();
   const roomMap = new Map();
@@ -57,7 +65,56 @@ const buildDerivedData = (reservations) => {
     customerMap.get(customerKey).bookings += 1;
   });
 
-  const rooms = Array.from(roomMap.values());
+  const today = localDateKey();
+  const rooms = Array.from(roomMap.values()).map((room) => {
+    const roomReservations = reservations
+      .filter((reservation) => String(reservation.roomId || '') === room.id)
+      .sort((a, b) => String(a.arrivalDate || '').localeCompare(String(b.arrivalDate || '')));
+
+    const inHouse = roomReservations.find(
+      (reservation) =>
+        reservation.status === 'in_house' ||
+        (
+          reservation.arrivalDate &&
+          reservation.departureDate &&
+          reservation.arrivalDate <= today &&
+          reservation.departureDate > today &&
+          reservation.status !== 'cancelled'
+        )
+    );
+
+    const checkoutToday = roomReservations.find(
+      (reservation) =>
+        reservation.departureDate === today &&
+        reservation.status !== 'cancelled'
+    );
+
+    const arrivingToday = roomReservations.find(
+      (reservation) =>
+        reservation.arrivalDate === today &&
+        reservation.status !== 'cancelled'
+    );
+
+    const nextArrival = roomReservations.find(
+      (reservation) =>
+        reservation.arrivalDate >= today &&
+        reservation.status !== 'cancelled'
+    );
+
+    return {
+      ...room,
+      occupancyStatus: checkoutToday
+        ? 'checkout_today'
+        : inHouse
+          ? 'occupied'
+          : arrivingToday
+            ? 'arriving_today'
+            : 'vacant',
+      currentGuest: inHouse?.guestName || null,
+      nextArrivalBookingId: nextArrival?.id || null,
+    };
+  });
+
   const properties = Array.from(propertyMap.values()).map((property) => ({
     ...property,
     totalRooms: rooms.filter((room) => room.propertyId === property.id).length,
