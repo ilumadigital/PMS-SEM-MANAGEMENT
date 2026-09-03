@@ -14,6 +14,9 @@ services:
     build: ./backend
     container_name: sem_pms_backend
     command: node server.js
+    env_file:
+      - ./backend/.env
+      - /home/deployer/pms-secrets/backend.env
     ports:
       - "5000:5000"
     environment:
