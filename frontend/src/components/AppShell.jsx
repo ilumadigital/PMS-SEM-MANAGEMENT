@@ -81,6 +81,9 @@ const AppShell = () => {
   }, [user]);
 
   const currentTitle = routeTitles[location.pathname] || 'SEM PMS';
+  const cloudbedsReady = cloudbeds.status?.connected && cloudbeds.status?.dataStatus === 'ready';
+  const cloudbedsConnected = cloudbeds.status?.connected;
+  const cloudbedsChecking = cloudbedsConnected && !cloudbeds.status?.dataStatus;
 
   const sidebar = (
     <div className="flex h-full flex-col bg-slate-950 text-slate-200">
@@ -162,9 +165,13 @@ const AppShell = () => {
           </button>
 
           <div className="min-w-0">
-            <div className="truncate text-base font-semibold text--slate-950">{currentTitle}</div>
+            <div className="truncate text-base font-semibold text-slate-950">{currentTitle}</div>
             <div className="hidden text-xs text-slate-500 sm:block">
-              {cloudbeds.status?.connected ? 'Live Cloudbeds sandbox data' : 'Cloudbeds connection required'}
+              {cloudbedsReady
+                ? 'Live Cloudbeds sandbox data'
+                : cloudbedsConnected
+                  ? 'Cloudbeds authorized · PMS data validation in progress'
+                  : 'Cloudbeds connection required'}
             </div>
           </div>
 
@@ -172,20 +179,30 @@ const AppShell = () => {
             <div className={`hidden items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold sm:flex ${
               cloudbeds.error
                 ? 'border-rose-200 bg-rose-50 text-rose-700'
-                : cloudbeds.status?.connected
+                : cloudbedsReady
                   ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                  : 'border-amber-200 bg-amber-50 text-amber-700'
+                  : cloudbedsConnected
+                    ? 'border-amber-200 bg-amber-50 text-amber-700'
+                    : 'border-slate-200 bg-slate-50 text-slate-600'
             }`}>
               <span className={`h-2 w-2 rounded-full ${
-                cloudbeds.error ? 'bg-rose-500' : cloudbeds.status?.connected ? 'bg-emerald-500' : 'bg-amber-500'
+                cloudbeds.error
+                  ? 'bg-rose-500'
+                  : cloudbedsReady
+                    ? 'bg-emerald-500'
+                    : cloudbedsConnected
+                      ? 'bg-amber-500'
+                      : 'bg-slate-400'
               }`} />
               {cloudbeds.error
                 ? 'Sync issue'
-                : cloudbeds.status?.connected && cloudbeds.status?.dataStatus === 'empty'
-                  ? 'Connected · no data'
-                  : cloudbeds.status?.connected
-                    ? 'Cloudbeds connected'
-                    : 'Not connected'}
+                : cloudbedsReady
+                  ? 'Cloudbeds synced'
+                  : cloudbedsChecking
+                    ? 'Connected · checking data'
+                    : cloudbedsConnected
+                      ? 'Connected · action needed'
+                      : 'Not connected'}
             </div>
 
             <button
@@ -202,7 +219,7 @@ const AppShell = () => {
           </div>
         </header>
 
-        <main className="min-h[calc(100vh-64px)]">
+        <main className="min-h-[calc(100vh-64px)]">
           <div className="mx-auto max-w-[1600px] px-4 py-5 sm:px-6 sm:py-6">
             <Outlet />
           </div>
