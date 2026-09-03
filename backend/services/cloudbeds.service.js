@@ -274,6 +274,9 @@ function propertyFromHotel(hotel) {
 }
 
 function allowedPropertyIds() {
+    const enforce = String(process.env.CLOUDBEDS_ENFORCE_PROPERTY_ALLOWLIST || 'false') === 'true';
+    if (!enforce) return [];
+
     return (process.env.CLOUDBEDS_ALLOWED_PROPERTY_IDS || '')
         .split(',')
         .map((value) => value.trim())
@@ -2146,7 +2149,8 @@ function getRuntimeConfiguration() {
         redirectUri: REDIRECT_URI,
         frontendUrl: FRONTEND_URL,
         envApiKeyEnabled: String(process.env.CLOUDBEDS_ALLOW_ENV_API_KEY || 'false') === 'true',
-        propertyAllowlistEnabled: allowedPropertyIds().length > 0,
+        propertyAllowlistEnabled: String(process.env.CLOUDBEDS_ENFORCE_PROPERTY_ALLOWLIST || 'false') === 'true',
+        propertyAllowlistCount: allowedPropertyIds().length,
         requiredScopes: REQUIRED_SCOPES,
     };
 }
