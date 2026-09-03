@@ -33,7 +33,7 @@ jobs:
 
             cd /home/deployer/pms-sem
 
-            test -f backend/.env || { echo "backend/.env is missing on VPS"; exit 1; }
+            test -f /home/deployer/pms-secrets/backend.env || { echo "/home/deployer/pms-secrets/backend.env is missing on VPS"; exit 1; }
 
             echo "Remove stale old config files"
             rm -f frontend/postcss.config.js frontend/postcss.config.cjs frontend/postcss.config.mjs
