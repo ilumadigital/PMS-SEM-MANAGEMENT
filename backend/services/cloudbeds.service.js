@@ -620,6 +620,261 @@ async function fetchAllReservations(apiKey, apiBases, propertyIds = []) {
     };
 }
 
+function extractGuestRecords(payload) {
+    if (Array.isArray(payload?.data)) return payload.data;
+    if (payload?.data && typeof payload.data === 'object') {
+        return Object.entries(payload.data).map(([guestId, guest]) => ({
+            ...(guest || {}),
+            guestID: guest?.guestID || guestId,
+        }));
+    }
+    return [];
+}
+
+function extractRoomRecords(payload) {
+    const groups = extractDataArray(payload);
+    return groups.flatMap((group) =>
+        asArray(group?.rooms).map((room) => ({
+            ...room,
+            propertyID: room?.propertyID || group?.propertyID || '',
+        }))
+    );
+}
+
+function normalizeGuestRecord(guest) {
+    const firstName = String(pick(guest, ['guestFirstName', 'firstName'], '') || '');
+    const lastName = String(pick(guest, ['guestLastName', 'lastName'], '') || '');
+    const name = String(
+        pick(guest, ['guestName', 'name'], `${firstName} ${lastName}`.trim() || 'Unknown Guest')
+    );
+    const phone = String(
+        pick(guest, ['guestCellPhone', 'guestPhone', 'cellPhone', 'phone'], '') || ''
+    );
+
+    return {
+        id: String(pick(guest, ['guestID', 'guestId', 'profileID', 'profileId'], name)),
+        guestId: String(pick(guest, ['guestID', 'guestId'], '')),
+        profileId: String(pick(guest, ['profileID', 'profileId'], '')),
+        name,
+        firstName,
+        lastName,
+        email: String(pick(guest, ['guestEmail', 'email'], '') || ''),
+        phone,
+        country: String(pick(guest, ['guestCountry', 'country'], '') || ''),
+        city: String(pick(guest, ['guestCity', 'city'], '') || ''),
+        reservationId: String(pick(guest, ['reservationID', 'reservationId'], '') || ''),
+        isMainGuest: Boolean(pick(guest, ['isMainGuest'], false)),
+        isAnonymized: Boolean(pick(guest, ['isAnonymized'], false)),
+        bookings: 0,
+        source: 'cloudbeds',
+    };
+}
+
+function normalizeRoomRecord(room) {
+    return {
+        id: String(pick(room, ['roomID', 'roomId', 'id'], '')),
+        propertyId: String(pick(room, ['propertyID', 'propertyId'], '')),
+        roomNumber: String(pick(room, ['roomName', 'roomNumber', 'name'], '') || ''),
+        roomTypeId: String(pick(room, ['roomTypeID', 'roomTypeId'], '') || ''),
+        roomType: String(pick(room, ['roomTypeName', 'roomTypeNameShort', 'roomType'], '') || ''),
+        maxGuests: Number(pick(room, ['maxGuests'], 0) || 0),
+        isPrivate: pick(room, ['isPrivate'], null),
+        isVirtual: Boolean(pick(room, ['isVirtual'], false)),
+        blocked: Boolean(pick(room, ['roomBlocked'], false)),
+        housekeepingStatus: 'not_tracked',
+        occupancyStatus: 'unknown',
+        nextArrivalBookingId: null,
+        currentGuest: null,
+        lastUpdatedAt: 'Cloudbeds',
+    };
+}
+
+function normalizeHousekeepingRecord(item) {
+    const condition = String(pick(item, ['roomCondition'], '') || '');
+    const occupied = Boolean(pick(item, ['roomOccupied'], false));
+    const blocked = Boolean(pick(item, ['roomBlocked'], false));
+
+    let status = condition || 'unknown';
+    if (blocked) status = 'out_of_order';
+    else if (pick(item, ['doNotDisturb'], false)) status = 'do_not_disturb';
+    else if (pick(item, ['refusedService'], false)) status = 'refused_service';
+    else if (pick(item, ['vacantPickup'], false)) status = 'vacant_pickup';
+    else if (condition) status = occupied ? `occupied_${condition}` : `vacant_${condition}`;
+
+    return {
+        roomId: String(pick(item, ['roomID', 'roomId'], '')),
+        roomNumber: String(pick(item, ['roomName', 'roomNumber'], '') || ''),
+        roomTypeId: String(pick(item, ['roomTypeID', 'roomTypeId'], '') || ''),
+        roomType: String(pick(item, ['roomTypeName'], '') || ''),
+        roomCondition: condition,
+        roomOccupied: occupied,
+        roomBlocked: blocked,
+        frontdeskStatus: String(pick(item, ['frontdeskStatus'], '') || ''),
+        housekeeperId: String(pick(item, ['housekeeperID'], '') || ''),
+        housekeeper: String(pick(item, ['housekeeper'], '') || ''),
+        doNotDisturb: Boolean(pick(item, ['doNotDisturb'], false)),
+        refusedService: Boolean(pick(item, ['refusedService'], false)),
+        vacantPickup: Boolean(pick(item, ['vacantPickup'], false)),
+        comments: String(pick(item, ['roomComments'], '') || ''),
+        status,
+        date: String(pick(item, ['date'], '') || ''),
+    };
+}
+
+async function fetchResourceFromBases(apiKey, apiBases, path, query, extractor) {
+    const attempts = [];
+    let firstEmpty = null;
+
+    for (const apiBase of apiBases) {
+        const result = await tryCloudbeds(path, { apiKey, baseUrl: apiBase, query });
+
+        if (!result.ok) {
+            attempts.push({ apiBase, path, ok: false, error: result.error });
+            continue;
+        }
+
+        const items = extractor(result.payload);
+        attempts.push({
+            apiBase,
+            path,
+            ok: true,
+            count: Array.isArray(items) ? items.length : 0,
+        });
+
+        const response = { apiBase, payload: result.payload, items, attempts };
+        if (Array.isArray(items) && items.length) return response;
+        firstEmpty = firstEmpty || response;
+    }
+
+    return firstEmpty || { apiBase: apiBases[0] || API_BASE, payload: null, items: [], attempts };
+}
+
+async function discoverCloudbedsResources(apiKey, apiBases, propertyIds = []) {
+    const propertyCsv = propertyIds.length ? propertyIds.join(',') : null;
+
+    const [hotelsResult, roomsResult, guestsResult] = await Promise.all([
+        fetchResourceFromBases(
+            apiKey,
+            apiBases,
+            '/getHotels',
+            { propertyIDs: propertyCsv, pageSize: 100, pageNumber: 1 },
+            (payload) => extractDataArray(payload).map(propertyFromHotel).filter((property) => property.id)
+        ),
+        fetchResourceFromBases(
+            apiKey,
+            apiBases,
+            '/getRooms',
+            { propertyIDs: propertyCsv, pageSize: 100, pageNumber: 1 },
+            (payload) => extractRoomRecords(payload).map(normalizeRoomRecord).filter((room) => room.id)
+        ),
+        fetchResourceFromBases(
+            apiKey,
+            apiBases,
+            '/getGuestList',
+            { propertyIDs: propertyCsv, pageSize: 100, pageNumber: 1 },
+            (payload) => extractGuestRecords(payload).map(normalizeGuestRecord)
+        ),
+    ]);
+
+    const propertyMap = new Map();
+
+    for (const property of hotelsResult.items) {
+        propertyMap.set(String(property.id), property);
+    }
+    for (const room of roomsResult.items) {
+        if (room.propertyId && !propertyMap.has(room.propertyId)) {
+            propertyMap.set(room.propertyId, {
+                id: room.propertyId,
+                name: 'Cloudbeds Sandbox Property',
+                city: '',
+            });
+        }
+    }
+
+    return {
+        properties: Array.from(propertyMap.values()),
+        rooms: roomsResult.items,
+        guests: guestsResult.items,
+        preferredApiBase:
+            roomsResult.items.length ? roomsResult.apiBase :
+            guestsResult.items.length ? guestsResult.apiBase :
+            hotelsResult.items.length ? hotelsResult.apiBase :
+            apiBases[0] || API_BASE,
+        attempts: [
+            ...hotelsResult.attempts,
+            ...roomsResult.attempts,
+            ...guestsResult.attempts,
+        ],
+    };
+}
+
+async function fetchHousekeeping(apiKey, apiBases, propertyIds = []) {
+    const targets = propertyIds.length ? propertyIds : [null];
+    const all = [];
+    const attempts = [];
+
+    for (const propertyId of targets) {
+        const result = await fetchResourceFromBases(
+            apiKey,
+            apiBases,
+            '/getHousekeepingStatus',
+            { propertyID: propertyId, pageSize: 5000, pageNumber: 1 },
+            (payload) => extractDataArray(payload).map(normalizeHousekeepingRecord)
+        );
+        all.push(...result.items);
+        attempts.push(...result.attempts);
+    }
+
+    return { items: all, attempts };
+}
+
+async function fetchDashboardSnapshot(apiKey, apiBases, propertyIds = []) {
+    const targets = propertyIds.length ? propertyIds : [null];
+    const items = [];
+    const attempts = [];
+
+    for (const propertyId of targets) {
+        let resolved = null;
+
+        for (const apiBase of apiBases) {
+            const result = await tryCloudbeds('/getDashboard', {
+                apiKey,
+                baseUrl: apiBase,
+                query: { propertyID: propertyId },
+            });
+
+            if (!result.ok) {
+                attempts.push({ apiBase, path: '/getDashboard', propertyId, ok: false, error: result.error });
+                continue;
+            }
+
+            attempts.push({ apiBase, path: '/getDashboard', propertyId, ok: true });
+            resolved = {
+                propertyId: propertyId || '',
+                ...(result.payload?.data || {}),
+            };
+            break;
+        }
+
+        if (resolved) items.push(resolved);
+    }
+
+    const totals = items.reduce(
+        (acc, item) => ({
+            roomsOccupied: acc.roomsOccupied + Number(item.roomsOccupied || 0),
+            percentageOccupied: items.length === 1
+                ? Number(item.percentageOccupied || 0)
+                : acc.percentageOccupied,
+            arrivals: acc.arrivals + Number(item.arrivals || 0),
+            departures: acc.departures + Number(item.departures || 0),
+            inHouse: acc.inHouse + Number(item.inHouse || 0),
+        }),
+        { roomsOccupied: 0, percentageOccupied: 0, arrivals: 0, departures: 0, inHouse: 0 }
+    );
+
+    return { items, totals, attempts };
+}
+
 function normalizeStatus(status) {
     const normalized = String(status || '').toLowerCase();
     if (normalized === 'checked_in') return 'in_house';
