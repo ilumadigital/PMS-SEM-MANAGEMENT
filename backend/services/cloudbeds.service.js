@@ -1839,7 +1839,25 @@ async function listPmsSnapshot() {
         ...resources.rooms.map((room) => room.propertyId),
     ]);
 
-    const fetched = await fetchAllReservations(apiKey, apiBases, discoveredPropertyIds);
+    let fetched;
+    try {
+        fetched = await fetchAllReservations(apiKey, apiBases, discoveredPropertyIds);
+    } catch (error) {
+        fetched = {
+            reservations: [],
+            apiBase: resources.preferredApiBase || apiBases[0] || API_BASE,
+            endpoint: '/getReservations',
+            propertyId: discoveredPropertyIds[0] || null,
+            attempts: [{
+                apiBase: resources.preferredApiBase || apiBases[0] || API_BASE,
+                endpoint: '/getReservations',
+                propertyId: discoveredPropertyIds[0] || null,
+                ok: false,
+                error: safeError(error),
+            }],
+        };
+    }
+
     let rawReservations = fetched.reservations;
 
     const allowed = allowedPropertyIds();
