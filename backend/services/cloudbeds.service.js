@@ -727,7 +727,7 @@ async function exchangeAuthorizationCode(code, state) {
             ready: false,
             validationError: safeError(error),
             requiredScopes: REQUIRED_SCOPES,
-        authorizationScopes: authorizationScopes(),
+            authorizationScopes: authorizationScopes(),
             tokenResources,
             propertyResourceCaptured: properties.length > 0,
         };
@@ -2319,6 +2319,7 @@ function getRuntimeConfiguration() {
         propertyAllowlistEnabled: String(process.env.CLOUDBEDS_ENFORCE_PROPERTY_ALLOWLIST || 'false') === 'true',
         propertyAllowlistCount: allowedPropertyIds().length,
         requiredScopes: REQUIRED_SCOPES,
+        authorizationScopes: authorizationScopes(),
     };
 }
 
