@@ -669,6 +669,12 @@ async function exchangeAuthorizationCode(code, state) {
         throw error;
     }
 
+    const tokenResources = asArray(tokenPayload?.resources)
+        .filter((resource) => resource?.type && resource?.id)
+        .map((resource) => ({
+            type: String(resource.type),
+            id: String(resource.id),
+        }));
     const properties = propertiesFromTokenResources(tokenPayload?.resources);
     await saveIntegration(apiKey, properties);
 
@@ -684,6 +690,8 @@ async function exchangeAuthorizationCode(code, state) {
             ready: false,
             validationError: safeError(error),
             requiredScopes: REQUIRED_SCOPES,
+            tokenResources,
+            propertyResourceCaptured: properties.length > 0,
         };
     }
 
@@ -695,6 +703,8 @@ async function exchangeAuthorizationCode(code, state) {
         requiresReauthorization: snapshot.requiresReauthorization,
         diagnostics: snapshot.diagnostics,
         requiredScopes: REQUIRED_SCOPES,
+        tokenResources,
+        propertyResourceCaptured: properties.length > 0,
     };
 }
 
