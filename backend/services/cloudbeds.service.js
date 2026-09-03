@@ -461,76 +461,163 @@ function isScopeError(error) {
         String(error?.message || '').toLowerCase().includes('scope required');
 }
 
-async function fetchReservationsPage(apiKey, apiBase, propertyId, pageNumber, includeDetails = true) {
-    const baseQuery = {
+function reservationQuery(endpoint, propertyId, pageNumber, includeDetails) {
+    const query = {
         propertyID: propertyId,
         sortByRecent: true,
         pageSize: PAGE_SIZE,
         pageNumber,
     };
 
+    if (includeDetails) {
+        query.includeGuestsDetails = true;
+        query.includeGuestRequirements = true;
+        query.includeCustomFields = true;
+        if (endpoint === '/getReservations') {
+            query.includeAllRooms = true;
+        }
+    }
+
+    return query;
+}
+
+async function fetchReservationPage(apiKey, apiBase, endpoint, propertyId, pageNumber, includeDetails) {
+    const options = {
+        apiKey,
+        baseUrl: apiBase,
+        query: reservationQuery(endpoint, propertyId, pageNumber, includeDetails),
+    };
+
     if (!includeDetails) {
-        return cloudbedsRequest('/getReservations', {
-            apiKey,
-            baseUrl: apiBase,
-            query: baseQuery,
-        });
+        return cloudbedsRequest(endpoint, options);
     }
 
     try {
-        return await cloudbedsRequest('/getReservations', {
-            apiKey,
-            baseUrl: apiBase,
-            query: {
-                ...baseQuery,
-                includeGuestsDetails: true,
-                includeGuestRequirements: true,
-                includeCustomFields: true,
-                includeAllRooms: true,
-            },
-        });
+        return await cloudbedsRequest(endpoint, options);
     } catch (error) {
+        // Guest/custom-field detail flags may require additional scopes. If the
+        // property only granted read:reservation we still load the bookings.
         if (isScopeError(error)) {
-            return cloudbedsRequest('/getReservations', {
+            return cloudbedsRequest(endpoint, {
                 apiKey,
                 baseUrl: apiBase,
-                query: baseQuery,
+                query: reservationQuery(endpoint, propertyId, pageNumber, false),
             });
         }
         throw error;
     }
 }
 
-async function fetchAllReservations(apiKey, propertyIds = []) {
-    const all = [];
-    const apiBase = await resolvePropertyApiBase(apiKey);
-    const targets = propertyIds.length ? propertyIds : [null];
+async function probeReservations(apiKey, apiBases, propertyIds = []) {
+    const attempts = [];
+    const targetValues = [];
 
-    for (const propertyId of targets) {
-        for (let pageNumber = 1; pageNumber <= 20; pageNumber += 1) {
-            let payload;
-            try {
-                payload = await fetchReservationsPage(apiKey, apiBase, propertyId, pageNumber, true);
-            } catch (error) {
-                if (isScopeError(error)) {
-                    const scopeError = new Error(
-                        'Cloudbeds API key was delivered, but the property did not grant Reservations read permission. Enable Reservations READ in the Cloudbeds Partner App, disconnect the app from the sandbox property, and reconnect it.'
-                    );
-                    scopeError.code = 'CLOUDBEDS_RESERVATION_SCOPE_REQUIRED';
-                    scopeError.status = 403;
-                    throw scopeError;
+    if (propertyIds.length) {
+        targetValues.push(propertyIds.join(','));
+        for (const propertyId of propertyIds) targetValues.push(propertyId);
+    }
+    targetValues.push(null);
+
+    const uniqueTargets = [...new Set(targetValues.map((value) => value || '__none__'))]
+        .map((value) => value === '__none__' ? null : value);
+
+    let firstSuccessfulEmpty = null;
+    let firstError = null;
+
+    for (const apiBase of apiBases) {
+        for (const endpoint of ['/getReservations', '/getReservationsWithRateDetails']) {
+            for (const propertyId of uniqueTargets) {
+                const result = await tryCloudbeds(endpoint, {
+                    apiKey,
+                    baseUrl: apiBase,
+                    query: reservationQuery(endpoint, propertyId, 1, false),
+                });
+
+                if (!result.ok) {
+                    attempts.push({
+                        apiBase,
+                        endpoint,
+                        propertyId,
+                        ok: false,
+                        error: result.error,
+                    });
+                    firstError = firstError || result.rawError;
+                    continue;
                 }
-                throw error;
+
+                const items = extractDataArray(result.payload);
+                attempts.push({
+                    apiBase,
+                    endpoint,
+                    propertyId,
+                    ok: true,
+                    count: items.length,
+                    total: result.payload?.total ?? result.payload?.count ?? null,
+                });
+
+                const target = { apiBase, endpoint, propertyId };
+                if (items.length > 0) {
+                    return { target, attempts };
+                }
+
+                firstSuccessfulEmpty = firstSuccessfulEmpty || target;
             }
-
-            const pageItems = extractDataArray(payload);
-            all.push(...pageItems);
-
-            if (pageItems.length < PAGE_SIZE) break;
         }
     }
 
-    return { reservations: all, apiBase };
+    if (firstSuccessfulEmpty) {
+        return { target: firstSuccessfulEmpty, attempts };
+    }
+
+    if (firstError) throw firstError;
+
+    const error = new Error('Cloudbeds did not return a usable reservations response.');
+    error.code = 'CLOUDBEDS_RESERVATIONS_UNAVAILABLE';
+    error.status = 502;
+    throw error;
+}
+
+async function fetchAllReservations(apiKey, apiBases, propertyIds = []) {
+    const probe = await probeReservations(apiKey, apiBases, propertyIds);
+    const { apiBase, endpoint, propertyId } = probe.target;
+    const all = [];
+
+    for (let pageNumber = 1; pageNumber <= 20; pageNumber += 1) {
+        let payload;
+        try {
+            payload = await fetchReservationPage(
+                apiKey,
+                apiBase,
+                endpoint,
+                propertyId,
+                pageNumber,
+                true
+            );
+        } catch (error) {
+            if (isScopeError(error)) {
+                const scopeError = new Error(
+                    'Cloudbeds is connected, but Reservations READ was not granted by the property.'
+                );
+                scopeError.code = 'CLOUDBEDS_RESERVATION_SCOPE_REQUIRED';
+                scopeError.status = 403;
+                throw scopeError;
+            }
+            throw error;
+        }
+
+        const pageItems = extractDataArray(payload);
+        all.push(...pageItems);
+
+        if (pageItems.length < PAGE_SIZE) break;
+    }
+
+    return {
+        reservations: all,
+        apiBase,
+        endpoint,
+        propertyId,
+        attempts: probe.attempts,
+    };
 }
 
 function normalizeStatus(status) {
