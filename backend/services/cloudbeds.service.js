@@ -483,13 +483,15 @@ function reservationQuery(endpoint, propertyId, pageNumber, includeDetails, extr
 }
 
 async function fetchReservationPage(apiKey, apiBase, endpoint, propertyId, pageNumber, includeDetails, extra = {}) {
+    const supportsDetailFlags = endpoint === '/getReservations';
+    const effectiveDetails = includeDetails && supportsDetailFlags;
     const options = {
         apiKey,
         baseUrl: apiBase,
-        query: reservationQuery(endpoint, propertyId, pageNumber, includeDetails, extra),
+        query: reservationQuery(endpoint, propertyId, pageNumber, effectiveDetails, extra),
     };
 
-    if (!includeDetails) {
+    if (!effectiveDetails) {
         return cloudbedsRequest(endpoint, options);
     }
 
@@ -1169,7 +1171,8 @@ function reservationsFromGuestRecords(guests, rooms, properties) {
 
         if (!existing) {
             const room = guest.roomId ? roomMap.get(String(guest.roomId)) : null;
-            const property = guest.propertyId ? propertyMap.get(String(guest.propertyId)) : null;
+            const resolvedPropertyId = guest.propertyId || room?.propertyId || '';
+            const property = resolvedPropertyId ? propertyMap.get(String(resolvedPropertyId)) : null;
             const start = guest.arrivalDate || '';
             const end = guest.departureDate || '';
             let nights = null;
@@ -1192,7 +1195,7 @@ function reservationsFromGuestRecords(guests, rooms, properties) {
                 guestName: guest.name || 'Unknown Guest',
                 guestEmail: guest.email || '',
                 guestPhone: guest.phone || '',
-                propertyId: guest.propertyId || '',
+                propertyId: resolvedPropertyId,
                 roomId: guest.roomId || `cloudbeds-unassigned-${reservationId}`,
                 roomIds: guest.roomId ? [guest.roomId] : [],
                 roomNumber: guest.roomNumber || room?.roomNumber || 'Unassigned',
@@ -1217,7 +1220,7 @@ function reservationsFromGuestRecords(guests, rooms, properties) {
                 totalPrice: null,
                 cloudbedsSource: 'Cloudbeds',
                 property: {
-                    id: guest.propertyId || '',
+                    id: resolvedPropertyId,
                     name: property?.name || 'Cloudbeds Sandbox Property',
                     city: property?.city || '',
                 },
