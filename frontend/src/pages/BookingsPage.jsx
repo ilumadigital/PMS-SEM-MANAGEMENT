@@ -64,10 +64,10 @@ const BookingsPage = () => {
         description="All reservations loaded directly from the connected Cloudbeds sandbox."
         actions={
           <button
-            onClick={status?.connected ? refresh : connect}
+            onClick={status?.connected ? refresh : status?.authorized ? reauthorize : connect}
             className="rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-blue-700"
           >
-            {status?.connected ? 'Refresh Cloudbeds' : 'Connect Cloudbeds'}
+            {status?.connected ? 'Refresh Cloudbeds' : status?.authorized ? 'Disconnect & re-authorize' : 'Connect Cloudbeds'}
           </button>
         }
       />
@@ -78,7 +78,7 @@ const BookingsPage = () => {
           <div className="mt-1 text-xs text-rose-700">{error}</div>
         </div>
       )}
-      {status?.connected && !loading && reservations.length === 0 && !error && (
+      {status?.authorized && !loading && reservations.length === 0 && !error && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
@@ -206,9 +206,9 @@ const BookingsPage = () => {
             <EmptyState
               title="No reservations found"
               description={
-                status?.connected && reservations.length === 0
+                status?.authorized && reservations.length === 0
                   ? 'The connected Cloudbeds token returned no reservations. Use the diagnostic banner above to retry or re-authorize the property.'
-                  : status?.connected
+                  : status?.authorized
                     ? 'Try changing the filters.'
                     : 'Connect Cloudbeds to load reservations.'
               }
