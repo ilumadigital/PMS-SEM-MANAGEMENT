@@ -1,12 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useContext, useMemo, useState } from 'react';
 import api from '../services/api';
-
-import {
-  cleaningTasks,
-  properties,
-  rooms,
-  shuttleRequests,
-} from '../data/semDemoData';
+import { CloudbedsDataContext } from '../context/CloudbedsDataContext';
 
 import {
   getPropertyById,
@@ -14,57 +8,23 @@ import {
 } from '../utils/semOperationsMetrics';
 
 const BookingsPage = () => {
-  const [reservations, setReservations] = useState([]);
-  const [integrationStatus, setIntegrationStatus] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState('');
+  const {
+    reservations,
+    properties,
+    rooms,
+    status: integrationStatus,
+    loading,
+    error: loadError,
+    refresh: loadCloudbedsReservations,
+    connect: connectCloudbeds,
+  } = useContext(CloudbedsDataContext);
+
+  const cleaningTasks = [];
+  const shuttleRequests = [];
   const [searchTerm, setSearchTerm] = useState('');
   const [sourceFilter, setSourceFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [selectedReservationId, setSelectedReservationId] = useState(null);
-
-  const loadCloudbedsReservations = useCallback(async () => {
-    try {
-      setLoadError('');
-      const statusResponse = await api.get('/integrations/cloudbeds/status');
-      setIntegrationStatus(statusResponse.data);
-
-      if (!statusResponse.data.connected) {
-        setReservations([]);
-        setSelectedReservationId(null);
-        setLoadError('Cloudbeds sandbox is not connected yet.');
-        return;
-      }
-
-      const reservationsResponse = await api.get('/integrations/cloudbeds/reservations');
-      const liveReservations = reservationsResponse.data.reservations || [];
-      setReservations(liveReservations);
-      setIntegrationStatus((current) => ({
-        ...(current || {}),
-        ...reservationsResponse.data,
-        connected: true,
-      }));
-      setSelectedReservationId((current) =>
-        current && liveReservations.some((item) => item.id === current)
-          ? current
-          : liveReservations[0]?.id || null
-      );
-    } catch (error) {
-      setLoadError(
-        error.response?.data?.message ||
-        error.message ||
-        'Could not load Cloudbeds sandbox reservations.'
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    loadCloudbedsReservations();
-    const interval = window.setInterval(loadCloudbedsReservations, 60000);
-    return () => window.clearInterval(interval);
-  }, [loadCloudbedsReservations]);
 
   const syncEvents = [
     {
@@ -132,31 +92,15 @@ const BookingsPage = () => {
   };
 
   const updateReservationField = async (reservationId, field, value) => {
-    setReservations((currentReservations) =>
-      currentReservations.map((reservation) =>
-        reservation.id === reservationId
-          ? {
-              ...reservation,
-              [field]: value,
-              missingFields: getUpdatedMissingFields(reservation, field, value),
-            }
-          : reservation
-      )
-    );
-
     try {
       await api.put(
         `/integrations/cloudbeds/reservations/${encodeURIComponent(reservationId)}/operations`,
         { [field]: value }
       );
+      await loadCloudbedsReservations();
     } catch (error) {
       console.error('Could not persist SEM reception field:', error);
     }
-  };
-
-  const connectCloudbeds = () => {
-    const apiOrigin = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-    window.location.assign(`${apiOrigin}/api/integrations/cloudbeds/connect`);
   };
 
   return (
