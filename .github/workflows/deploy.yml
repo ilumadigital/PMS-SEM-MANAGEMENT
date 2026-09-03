@@ -48,8 +48,8 @@ jobs:
             docker compose stop frontend || true
             docker compose rm -f -v frontend || true
 
-            echo "Build frontend production image"
-            docker compose build --no-cache frontend
+            echo "Build backend and frontend production images"
+            docker compose build --no-cache backend frontend
 
             echo "Start full stack"
             docker compose up -d --force-recreate
