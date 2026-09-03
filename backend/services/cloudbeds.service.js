@@ -461,12 +461,13 @@ function isScopeError(error) {
         String(error?.message || '').toLowerCase().includes('scope required');
 }
 
-function reservationQuery(endpoint, propertyId, pageNumber, includeDetails) {
+function reservationQuery(endpoint, propertyId, pageNumber, includeDetails, extra = {}) {
     const query = {
         propertyID: propertyId,
         sortByRecent: true,
         pageSize: PAGE_SIZE,
         pageNumber,
+        ...extra,
     };
 
     if (includeDetails) {
@@ -481,11 +482,11 @@ function reservationQuery(endpoint, propertyId, pageNumber, includeDetails) {
     return query;
 }
 
-async function fetchReservationPage(apiKey, apiBase, endpoint, propertyId, pageNumber, includeDetails) {
+async function fetchReservationPage(apiKey, apiBase, endpoint, propertyId, pageNumber, includeDetails, extra = {}) {
     const options = {
         apiKey,
         baseUrl: apiBase,
-        query: reservationQuery(endpoint, propertyId, pageNumber, includeDetails),
+        query: reservationQuery(endpoint, propertyId, pageNumber, includeDetails, extra),
     };
 
     if (!includeDetails) {
@@ -501,7 +502,7 @@ async function fetchReservationPage(apiKey, apiBase, endpoint, propertyId, pageN
             return cloudbedsRequest(endpoint, {
                 apiKey,
                 baseUrl: apiBase,
-                query: reservationQuery(endpoint, propertyId, pageNumber, false),
+                query: reservationQuery(endpoint, propertyId, pageNumber, false, extra),
             });
         }
         throw error;
@@ -524,43 +525,74 @@ async function probeReservations(apiKey, apiBases, propertyIds = []) {
     let firstSuccessfulEmpty = null;
     let firstError = null;
 
+    const today = new Date();
+    const rangeStart = new Date(today);
+    rangeStart.setFullYear(rangeStart.getFullYear() - 2);
+    const rangeEnd = new Date(today);
+    rangeEnd.setFullYear(rangeEnd.getFullYear() + 3);
+    const toDate = (date) => date.toISOString().slice(0, 10);
+
     for (const apiBase of apiBases) {
         for (const endpoint of ['/getReservations', '/getReservationsWithRateDetails']) {
             for (const propertyId of uniqueTargets) {
-                const result = await tryCloudbeds(endpoint, {
-                    apiKey,
-                    baseUrl: apiBase,
-                    query: reservationQuery(endpoint, propertyId, 1, false),
-                });
+                const queryVariants = endpoint === '/getReservations'
+                    ? [
+                        { label: 'all', extra: {} },
+                        {
+                            label: 'checkin-window',
+                            extra: {
+                                checkInFrom: toDate(rangeStart),
+                                checkInTo: toDate(rangeEnd),
+                            },
+                        },
+                    ]
+                    : [{ label: 'all', extra: {} }];
 
-                if (!result.ok) {
+                for (const variant of queryVariants) {
+                    const result = await tryCloudbeds(endpoint, {
+                        apiKey,
+                        baseUrl: apiBase,
+                        query: reservationQuery(endpoint, propertyId, 1, false, variant.extra),
+                    });
+
+                    if (!result.ok) {
+                        attempts.push({
+                            apiBase,
+                            endpoint,
+                            propertyId,
+                            query: variant.label,
+                            ok: false,
+                            error: result.error,
+                        });
+                        firstError = firstError || result.rawError;
+                        continue;
+                    }
+
+                    const items = extractDataArray(result.payload);
                     attempts.push({
                         apiBase,
                         endpoint,
                         propertyId,
-                        ok: false,
-                        error: result.error,
+                        query: variant.label,
+                        ok: true,
+                        count: items.length,
+                        total: result.payload?.total ?? result.payload?.count ?? null,
                     });
-                    firstError = firstError || result.rawError;
-                    continue;
+
+                    const target = {
+                        apiBase,
+                        endpoint,
+                        propertyId,
+                        extra: variant.extra,
+                        queryLabel: variant.label,
+                    };
+
+                    if (items.length > 0) {
+                        return { target, attempts };
+                    }
+
+                    firstSuccessfulEmpty = firstSuccessfulEmpty || target;
                 }
-
-                const items = extractDataArray(result.payload);
-                attempts.push({
-                    apiBase,
-                    endpoint,
-                    propertyId,
-                    ok: true,
-                    count: items.length,
-                    total: result.payload?.total ?? result.payload?.count ?? null,
-                });
-
-                const target = { apiBase, endpoint, propertyId };
-                if (items.length > 0) {
-                    return { target, attempts };
-                }
-
-                firstSuccessfulEmpty = firstSuccessfulEmpty || target;
             }
         }
     }
@@ -579,7 +611,7 @@ async function probeReservations(apiKey, apiBases, propertyIds = []) {
 
 async function fetchAllReservations(apiKey, apiBases, propertyIds = []) {
     const probe = await probeReservations(apiKey, apiBases, propertyIds);
-    const { apiBase, endpoint, propertyId } = probe.target;
+    const { apiBase, endpoint, propertyId, extra = {} } = probe.target;
     const all = [];
 
     for (let pageNumber = 1; pageNumber <= 20; pageNumber += 1) {
@@ -591,7 +623,8 @@ async function fetchAllReservations(apiKey, apiBases, propertyIds = []) {
                 endpoint,
                 propertyId,
                 pageNumber,
-                true
+                true,
+                extra
             );
         } catch (error) {
             if (isScopeError(error)) {
