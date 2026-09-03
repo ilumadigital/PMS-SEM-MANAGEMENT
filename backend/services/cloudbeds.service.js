@@ -1527,6 +1527,17 @@ async function listPmsSnapshot() {
             })
     );
 
+    const hasPmsData =
+        reservations.length > 0 ||
+        guests.length > 0 ||
+        rooms.length > 0 ||
+        housekeepingResult.items.length > 0;
+
+    const requiresReauthorization =
+        !hasPmsData &&
+        finalPropertyIds.length === 0 &&
+        initialPropertyIds.length === 0;
+
     return {
         environment: ENVIRONMENT,
         properties,
@@ -1536,11 +1547,14 @@ async function listPmsSnapshot() {
         housekeeping: housekeepingResult.items,
         dashboard,
         count: reservations.length,
+        dataStatus: hasPmsData ? 'ready' : 'empty',
+        requiresReauthorization,
         cloudbedsApiBase: fetched.apiBase,
         cloudbedsReservationEndpoint: fetched.endpoint,
         connectedPropertyIds: finalPropertyIds,
         diagnostics: {
             apiBases,
+            storedPropertyIds: initialPropertyIds,
             chosenApiBase: fetched.apiBase,
             reservationEndpoint: fetched.endpoint,
             reservationQuery: fetched.attempts.find(
