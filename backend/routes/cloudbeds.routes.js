@@ -16,6 +16,20 @@ router.get(
 );
 
 router.get(
+    '/config',
+    protect,
+    restrictTo('admin', 'management'),
+    cloudbedsController.config
+);
+
+router.post(
+    '/disconnect',
+    protect,
+    restrictTo('admin', 'management'),
+    cloudbedsController.disconnect
+);
+
+router.get(
     '/snapshot',
     protect,
     restrictTo('admin', 'management', 'reception'),
