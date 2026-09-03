@@ -159,6 +159,7 @@ async function cloudbedsRequest(path, { apiKey, method = 'GET', query, form, bas
 
     const response = await fetch(url, request);
     const text = await response.text();
+    const contentType = response.headers.get('content-type') || '';
 
     let payload;
     try {
@@ -167,16 +168,26 @@ async function cloudbedsRequest(path, { apiKey, method = 'GET', query, form, bas
         payload = { raw: text };
     }
 
-    if (!response.ok || payload?.success === false) {
+    const nonJsonSuccess =
+        response.ok &&
+        text &&
+        !contentType.toLowerCase().includes('json') &&
+        payload?.raw !== undefined;
+
+    if (!response.ok || payload?.success === false || nonJsonSuccess) {
         const message =
             payload?.message ||
             payload?.error_description ||
             payload?.error ||
-            `Cloudbeds API request failed with HTTP ${response.status}`;
+            (nonJsonSuccess
+                ? `Cloudbeds returned a non-JSON response for ${url.pathname}`
+                : `Cloudbeds API request failed with HTTP ${response.status}`);
         const error = new Error(message);
         error.status = response.status;
         error.cloudbedsPayload = payload;
         error.requestId = response.headers.get('x-request-id') || null;
+        error.requestUrl = url.toString();
+        error.contentType = contentType;
         throw error;
     }
 
@@ -225,6 +236,8 @@ function safeError(error) {
         code: error?.code || null,
         message: error?.message || 'Unknown Cloudbeds error',
         requestId: error?.requestId || null,
+        requestUrl: error?.requestUrl || null,
+        contentType: error?.contentType || null,
     };
 }
 
@@ -1164,10 +1177,69 @@ async function fetchResourceFromBases(apiKey, apiBases, path, query, extractor) 
     return firstEmpty || { apiBase: apiBases[0] || API_BASE, payload: null, items: [], attempts };
 }
 
+async function fetchPropertyDetails(apiKey, apiBases, propertyIds = []) {
+    const properties = [];
+    const attempts = [];
+
+    for (const propertyId of propertyIds) {
+        let resolved = null;
+
+        for (const apiBase of apiBases) {
+            const result = await tryCloudbeds('/getHotelDetails', {
+                apiKey,
+                baseUrl: apiBase,
+                query: { propertyID: propertyId },
+            });
+
+            if (!result.ok) {
+                attempts.push({
+                    apiBase,
+                    path: '/getHotelDetails',
+                    propertyId,
+                    ok: false,
+                    error: result.error,
+                });
+                continue;
+            }
+
+            const hotel = result.payload?.data;
+            const property =
+                hotel && typeof hotel === 'object' && !Array.isArray(hotel)
+                    ? propertyFromHotel(hotel)
+                    : null;
+
+            attempts.push({
+                apiBase,
+                path: '/getHotelDetails',
+                propertyId,
+                ok: true,
+                count: property?.id ? 1 : 0,
+            });
+
+            if (property?.id) {
+                properties.push(property);
+                resolved = property;
+                break;
+            }
+        }
+
+        if (!resolved) {
+            properties.push({
+                id: String(propertyId),
+                name: 'Cloudbeds Sandbox Property',
+                city: '',
+            });
+        }
+    }
+
+    return { properties, attempts };
+}
+
 async function discoverCloudbedsResources(apiKey, apiBases, propertyIds = []) {
     const propertyCsv = propertyIds.length ? propertyIds.join(',') : null;
 
-    const [hotelsResult, roomsResult, guestsResult] = await Promise.all([
+    const [detailsResult, hotelsResult, roomsResult, guestsResult] = await Promise.all([
+        fetchPropertyDetails(apiKey, apiBases, propertyIds),
         fetchResourceFromBases(
             apiKey,
             apiBases,
@@ -1193,6 +1265,9 @@ async function discoverCloudbedsResources(apiKey, apiBases, propertyIds = []) {
 
     const propertyMap = new Map();
 
+    for (const property of detailsResult.properties) {
+        propertyMap.set(String(property.id), property);
+    }
     for (const property of hotelsResult.items) {
         propertyMap.set(String(property.id), property);
     }
@@ -1216,6 +1291,7 @@ async function discoverCloudbedsResources(apiKey, apiBases, propertyIds = []) {
             hotelsResult.items.length ? hotelsResult.apiBase :
             apiBases[0] || API_BASE,
         attempts: [
+            ...detailsResult.attempts,
             ...hotelsResult.attempts,
             ...roomsResult.attempts,
             ...guestsResult.attempts,
