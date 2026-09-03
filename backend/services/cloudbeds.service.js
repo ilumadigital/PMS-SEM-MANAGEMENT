@@ -627,10 +627,42 @@ async function listReservations() {
 async function saveReservationOperations(reservationId, payload) {
     await ensureTables();
 
-    const arrivalTime = payload.actual_arrival_time ?? payload.arrivalTime ?? null;
-    const departureTime = payload.actual_departure_time ?? payload.departureTime ?? null;
-    const guestNotes = payload.guest_notes ?? payload.guestNotes ?? '';
-    const specialRequests = payload.special_requests ?? payload.specialRequests ?? [];
+    const existingRows = await db.query(
+        `SELECT actual_arrival_time, actual_departure_time, guest_notes, special_requests_json
+         FROM reservation_operations
+         WHERE source = ? AND external_reservation_id = ?
+         LIMIT 1`,
+        [PROVIDER, String(reservationId)]
+    );
+    const existing = existingRows[0] || {};
+
+    const hasArrival = payload.actual_arrival_time !== undefined || payload.arrivalTime !== undefined;
+    const hasDeparture = payload.actual_departure_time !== undefined || payload.departureTime !== undefined;
+    const hasNotes = payload.guest_notes !== undefined || payload.guestNotes !== undefined;
+    const hasRequests = payload.special_requests !== undefined || payload.specialRequests !== undefined;
+
+    const arrivalTime = hasArrival
+        ? (payload.actual_arrival_time ?? payload.arrivalTime ?? null)
+        : (existing.actual_arrival_time ?? null);
+    const departureTime = hasDeparture
+        ? (payload.actual_departure_time ?? payload.departureTime ?? null)
+        : (existing.actual_departure_time ?? null);
+    const guestNotes = hasNotes
+        ? (payload.guest_notes ?? payload.guestNotes ?? '')
+        : (existing.guest_notes ?? '');
+
+    let existingRequests = [];
+    try {
+        existingRequests = existing.special_requests_json
+            ? JSON.parse(existing.special_requests_json)
+            : [];
+    } catch {
+        existingRequests = [];
+    }
+
+    const specialRequests = hasRequests
+        ? (payload.special_requests ?? payload.specialRequests ?? [])
+        : existingRequests;
 
     await db.query(
         `INSERT INTO reservation_operations
