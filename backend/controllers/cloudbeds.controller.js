@@ -22,15 +22,37 @@ function sendError(res, error, fallbackStatus = 500) {
 
 const connect = async (req, res) => {
     try {
-        const url = cloudbedsService.buildAuthorizationUrl();
-        return res.redirect(url);
+        const authorization = await cloudbedsService.createAuthorizationUrl();
+        return res.redirect(authorization.url);
     } catch (error) {
         return sendError(res, error, 500);
     }
 };
 
+const reauthorize = async (req, res) => {
+    try {
+        await cloudbedsService.disconnectIntegration();
+        const authorization = await cloudbedsService.createAuthorizationUrl();
+        return res.redirect(authorization.url);
+    } catch (error) {
+        return sendError(res, error, 502);
+    }
+};
+
+const disconnect = async (req, res) => {
+    try {
+        const result = await cloudbedsService.disconnectIntegration();
+        return res.status(200).json({
+            success: true,
+            ...result,
+        });
+    } catch (error) {
+        return sendError(res, error, 502);
+    }
+};
+
 const callback = async (req, res) => {
-    const { code, error, error_description: errorDescription } = req.query;
+    const { code, state, error, error_description: errorDescription } = req.query;
 
     if (error) {
         return res.status(400).send(`
@@ -54,8 +76,10 @@ const callback = async (req, res) => {
     }
 
     try {
-        const result = await cloudbedsService.exchangeAuthorizationCode(code);
-        const propertyNames = result.properties.map((property) => property.name).join(', ');
+        const result = await cloudbedsService.exchangeAuthorizationCode(code, state);
+        const propertyNames = (result.properties || []).map((property) => property.name).join(', ');
+        const missingScopes = result.diagnostics?.missingScopes || [];
+        const isReady = result.ready === true;
 
         return res.status(200).send(`
             <!doctype html>
@@ -63,15 +87,21 @@ const callback = async (req, res) => {
               <head>
                 <meta charset="utf-8">
                 <meta name="viewport" content="width=device-width,initial-scale=1">
-                <title>Cloudbeds sandbox connected</title>
+                <title>${isReady ? 'Cloudbeds connected' : 'Cloudbeds connection needs attention'}</title>
               </head>
               <body style="margin:0;font-family:Arial,sans-serif;background:#0c0c0c;color:#fff">
-                <main style="max-width:720px;margin:80px auto;padding:32px;border:1px solid #2f2f2f;border-radius:20px;background:#151515">
+                <main style="max-width:760px;margin:80px auto;padding:32px;border:1px solid #2f2f2f;border-radius:20px;background:#151515">
                   <div style="font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#c9a46a">SEM PMS · Cloudbeds</div>
-                  <h1 style="margin-top:18px">Sandbox connected successfully</h1>
-                  <p style="line-height:1.7;color:#c9c4bc">Connected property: <strong style="color:#fff">${escapeHtml(propertyNames || 'Cloudbeds sandbox property')}</strong></p>
-                  <p style="line-height:1.7;color:#c9c4bc">You can now return to the SEM PMS Reservations screen. The page will load the demo reservations directly from this Cloudbeds test account.</p>
-                  <a href="https://pms.sem-management.com" style="display:inline-block;margin-top:18px;padding:14px 18px;border-radius:12px;background:#c9a46a;color:#111;text-decoration:none;font-weight:700">Open SEM PMS</a>
+                  <h1 style="margin-top:18px">${isReady ? 'Sandbox connected and PMS data verified' : 'Authorization completed, but PMS data is not ready'}</h1>
+                  <p style="line-height:1.7;color:#c9c4bc">Property: <strong style="color:#fff">${escapeHtml(propertyNames || 'Property ID will be discovered from PMS data')}</strong></p>
+                  ${
+                    isReady
+                      ? '<p style="line-height:1.7;color:#c9c4bc">Reservations, guests, rooms and operational data can now be loaded from Cloudbeds.</p>'
+                      : `<p style="line-height:1.7;color:#f0d6a5">Cloudbeds issued an API key, but the required PMS resources could not all be verified.</p>
+                         <p style="line-height:1.7;color:#c9c4bc">Missing permissions: <strong style="color:#fff">${escapeHtml(missingScopes.join(', ') || 'No data returned by the authorized property')}</strong></p>
+                         <p style="line-height:1.7;color:#c9c4bc">Required for the full SEM PMS: <strong style="color:#fff">${escapeHtml((result.requiredScopes || []).join(', '))}</strong></p>`
+                  }
+                  <a href="${escapeHtml(cloudbedsService.FRONTEND_URL)}" style="display:inline-block;margin-top:18px;padding:14px 18px;border-radius:12px;background:#c9a46a;color:#111;text-decoration:none;font-weight:700">Open SEM PMS</a>
                 </main>
               </body>
             </html>
@@ -99,6 +129,17 @@ const status = async (req, res) => {
         return sendError(res, error, 502);
     }
 };
+const config = async (req, res) => {
+    try {
+        return res.status(200).json({
+            success: true,
+            ...cloudbedsService.getRuntimeConfiguration(),
+        });
+    } catch (error) {
+        return sendError(res, error, 500);
+    }
+};
+
 
 const reservations = async (req, res) => {
     try {
@@ -143,8 +184,11 @@ const updateReservationOperations = async (req, res) => {
 
 module.exports = {
     connect,
+    reauthorize,
+    disconnect,
     callback,
     status,
+    config,
     snapshot,
     reservations,
     updateReservationOperations,
