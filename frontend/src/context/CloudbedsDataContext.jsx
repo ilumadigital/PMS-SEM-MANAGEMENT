@@ -31,19 +31,36 @@ const buildDerivedData = (reservations) => {
       });
     }
 
-    const roomId = String(reservation.roomId || `unassigned-${reservation.id}`);
-    if (!roomMap.has(roomId)) {
-      roomMap.set(roomId, {
-        id: roomId,
-        propertyId,
-        roomNumber: reservation.roomNumber || 'Unassigned',
-        roomType: reservation.roomType || '',
-        housekeepingStatus: 'not_tracked',
-        occupancyStatus: 'unknown',
-        nextArrivalBookingId: null,
-        currentGuest: null,
-        lastUpdatedAt: 'Cloudbeds',
-      });
+    const roomIds = Array.isArray(reservation.roomIds) && reservation.roomIds.length
+      ? reservation.roomIds.map(String)
+      : [String(reservation.roomId || `unassigned-${reservation.id}`)];
+    const roomNumbers = Array.isArray(reservation.roomNumbers) && reservation.roomNumbers.length
+      ? reservation.roomNumbers.map(String)
+      : [String(reservation.roomNumber || 'Unassigned')];
+    const roomTypes = Array.isArray(reservation.roomTypes) && reservation.roomTypes.length
+      ? reservation.roomTypes.map(String)
+      : [String(reservation.roomType || '')];
+
+    const roomCount = Math.max(roomIds.length, roomNumbers.length, 1);
+
+    for (let index = 0; index < roomCount; index += 1) {
+      const roomId = roomIds[index] || `${roomIds[0]}-${index + 1}`;
+      const roomNumber = roomNumbers[index] || roomNumbers[0] || 'Unassigned';
+      const roomType = roomTypes[index] || roomTypes[0] || '';
+
+      if (!roomMap.has(roomId)) {
+        roomMap.set(roomId, {
+          id: roomId,
+          propertyId,
+          roomNumber,
+          roomType,
+          housekeepingStatus: 'not_tracked',
+          occupancyStatus: 'unknown',
+          nextArrivalBookingId: null,
+          currentGuest: null,
+          lastUpdatedAt: 'Cloudbeds',
+        });
+      }
     }
 
     const customerKey =
@@ -68,7 +85,12 @@ const buildDerivedData = (reservations) => {
   const today = localDateKey();
   const rooms = Array.from(roomMap.values()).map((room) => {
     const roomReservations = reservations
-      .filter((reservation) => String(reservation.roomId || '') === room.id)
+      .filter((reservation) => {
+        const ids = Array.isArray(reservation.roomIds) && reservation.roomIds.length
+          ? reservation.roomIds.map(String)
+          : [String(reservation.roomId || '')];
+        return ids.includes(room.id);
+      })
       .sort((a, b) => String(a.arrivalDate || '').localeCompare(String(b.arrivalDate || '')));
 
     const inHouse = roomReservations.find(
