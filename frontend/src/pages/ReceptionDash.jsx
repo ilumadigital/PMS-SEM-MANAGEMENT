@@ -15,7 +15,7 @@ import {
 } from '../components/PmsUi';
 
 const ReceptionDash = () => {
-  const { reservations, dashboard, diagnostics, loading, refresh, connect, status } = useContext(CloudbedsDataContext);
+  const { reservations, dashboard, diagnostics, loading, refresh, reauthorize, status } = useContext(CloudbedsDataContext);
   const [view, setView] = useState('today');
   const [search, setSearch] = useState('');
 
@@ -99,8 +99,8 @@ const ReceptionDash = () => {
                   : 'The current property binding returned no reservation rows.'}
               </div>
             </div>
-            <button onClick={connect} className="rounded-lg bg-amber-700 px-3 py-2 text-xs font-semibold text-white">
-              Re-authorize property
+            <button onClick={reauthorize} className="rounded-lg bg-amber-700 px-3 py-2 text-xs font-semibold text-white">
+              Disconnect & re-authorize
             </button>
           </div>
         </div>
