@@ -14,7 +14,7 @@ import {
 } from '../components/PmsUi';
 
 const BookingsPage = () => {
-  const { reservations, properties, diagnostics, loading, status, error, refresh, connect } =
+  const { reservations, properties, diagnostics, loading, status, error, refresh, connect, reauthorize } =
     useContext(CloudbedsDataContext);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -97,8 +97,8 @@ const BookingsPage = () => {
               <button onClick={refresh} className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-900">
                 Retry API
               </button>
-              <button onClick={connect} className="rounded-lg bg-amber-700 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-800">
-                Re-authorize property
+              <button onClick={reauthorize} className="rounded-lg bg-amber-700 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-800">
+                Disconnect & re-authorize
               </button>
             </div>
           </div>
