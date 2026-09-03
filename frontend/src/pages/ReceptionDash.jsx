@@ -1,3 +1,4 @@
+import { CloudbedsDataContext } from '../context/CloudbedsDataContext';
 import React, { useContext, useMemo, useState } from 'react';
 import {
   getPropertyById,
@@ -38,7 +39,7 @@ const ReceptionDash = () => {
       ...todayDepartures.map((reservation) => ({
         ...reservation,
         flowType: 'departure',
-        flowDate: reservation.arrivalDate,
+        flowDate: reservation.departureDate,
         flowTime: reservation.departureTime,
       })),
     ].sort((a, b) => String(a.flowTime || '99:99').localeCompare(String(b.flowTime || '99:99')));
