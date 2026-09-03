@@ -1,11 +1,24 @@
 import React, { useContext, useMemo, useState } from 'react';
 import { CloudbedsDataContext } from '../context/CloudbedsDataContext';
+import {
+  EmptyState,
+  MetricCard,
+  PageHeader,
+  Panel,
+  StatusBadge,
+  TableShell,
+  Td,
+  Th,
+  formatDate,
+} from '../components/PmsUi';
 
 const RoomsPage = () => {
   const {
     rooms,
     properties,
     reservations,
+    housekeeping,
+    diagnostics,
     loading,
     error,
     status,
@@ -14,94 +27,111 @@ const RoomsPage = () => {
   } = useContext(CloudbedsDataContext);
 
   const [propertyFilter, setPropertyFilter] = useState('all');
-  const [searchTerm, setSearchTerm] = useState('');
+  const [search, setSearch] = useState('');
 
-  const enrichedRooms = useMemo(() => {
-    return rooms.map((room) => {
-      const property = properties.find((item) => item.id === room.propertyId);
-      const roomReservations = reservations
-        .filter((reservation) => reservation.roomId === room.id)
-        .sort((a, b) => String(a.arrivalDate || '').localeCompare(String(b.arrivalDate || '')));
+  const rows = useMemo(() => {
+    const term = search.trim().toLowerCase();
 
-      return {
-        ...room,
-        property,
-        reservations: roomReservations,
-        nextReservation: roomReservations.find(
-          (reservation) => reservation.id === room.nextArrivalBookingId
-        ) || roomReservations[0] || null,
-      };
-    });
-  }, [rooms, properties, reservations]);
+    return rooms
+      .map((room) => {
+        const property = properties.find((item) => item.id === room.propertyId);
+        const roomReservations = reservations
+          .filter((reservation) => {
+            const ids = reservation.roomIds?.length
+              ? reservation.roomIds.map(String)
+              : [String(reservation.roomId || '')];
+            return ids.includes(String(room.id));
+          })
+          .sort((a, b) => String(a.arrivalDate || '').localeCompare(String(b.arrivalDate || '')));
 
-  const filteredRooms = enrichedRooms.filter((room) => {
-    const matchesProperty = propertyFilter === 'all' || room.propertyId === propertyFilter;
-    const term = searchTerm.trim().toLowerCase();
-    const matchesSearch =
-      !term ||
-      String(room.roomNumber || '').toLowerCase().includes(term) ||
-      String(room.roomType || '').toLowerCase().includes(term) ||
-      String(room.property?.name || '').toLowerCase().includes(term) ||
-      String(room.currentGuest || '').toLowerCase().includes(term);
+        const nextReservation =
+          roomReservations.find((reservation) => reservation.id === room.nextArrivalBookingId) ||
+          roomReservations.find(
+            (reservation) =>
+              reservation.arrivalDate &&
+              reservation.arrivalDate >= new Date().toISOString().slice(0, 10) &&
+              reservation.status !== 'cancelled'
+          ) ||
+          null;
 
-    return matchesProperty && matchesSearch;
-  });
+        const hk =
+          room.housekeeping ||
+          housekeeping.find((item) => String(item.roomId) === String(room.id)) ||
+          null;
 
-  const occupied = enrichedRooms.filter((room) =>
+        return { ...room, property, nextReservation, housekeeping: hk };
+      })
+      .filter((room) => {
+        const propertyMatch =
+          propertyFilter === 'all' || room.propertyId === propertyFilter;
+        if (!propertyMatch) return false;
+        if (!term) return true;
+
+        return [
+          room.roomNumber,
+          room.roomType,
+          room.property?.name,
+          room.currentGuest,
+          room.housekeeping?.status,
+        ]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(term));
+      });
+  }, [rooms, properties, reservations, housekeeping, propertyFilter, search]);
+
+  const occupied = rooms.filter((room) =>
     ['occupied', 'checkout_today'].includes(room.occupancyStatus)
   ).length;
+  const dirty = housekeeping.filter((item) => item.roomCondition === 'dirty').length;
+  const clean = housekeeping.filter((item) => item.roomCondition === 'clean').length;
+  const missingRoomScope = (diagnostics?.missingScopes || []).includes('read:room');
 
   return (
-    <div className="space-y-8">
-      <section className="relative overflow-hidden rounded-[2rem] border border-[#C9A46A]/20 bg-[#111110] p-8 shadow-[0_24px_80px_rgba(0,0,0,0.35)]">
-        <div className="relative flex flex-col xl:flex-row xl:items-end xl:justify-between gap-6">
-          <div>
-            <div className="text-[10px] uppercase tracking-[0.3em] text-[#C9A46A] font-bold">
-              Cloudbeds Sandbox · Live Rooms
-            </div>
-            <h1 className="mt-4 text-4xl xl:text-5xl font-semibold tracking-[-0.05em] text-white">
-              Rooms from Cloudbeds reservations.
-            </h1>
-            <p className="mt-4 max-w-2xl text-sm leading-7 text-[#BEB7AD]">
-              Room numbers and room types are derived from the connected Cloudbeds test account.
-              Housekeeping status remains local to SEM and is not fabricated from demo data.
-            </p>
-          </div>
-
+    <div className="space-y-6">
+      <PageHeader
+        title="Rooms"
+        description="Live Cloudbeds rooms, occupancy, next arrival and housekeeping status."
+        actions={
           <button
             onClick={status?.connected ? refresh : connect}
-            className="rounded-full border border-[#C9A46A]/25 px-5 py-3 text-[10px] uppercase tracking-[0.22em] text-[#C9A46A]"
+            className="rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-blue-700"
           >
-            {status?.connected ? 'Refresh Cloudbeds' : 'Connect Sandbox'}
+            {status?.connected ? 'Refresh Cloudbeds' : 'Connect Cloudbeds'}
           </button>
-        </div>
-
-        <div className="relative mt-8 grid grid-cols-2 xl:grid-cols-4 gap-3">
-          <Metric label="Tracked rooms" value={loading ? '…' : enrichedRooms.length} />
-          <Metric label="Occupied" value={occupied} />
-          <Metric label="Properties" value={properties.length} />
-          <Metric label="Reservations" value={reservations.length} />
-        </div>
-      </section>
+        }
+      />
 
       {error && (
-        <div className="rounded-2xl border border-[#F0D6A5]/25 bg-[#F0D6A5]/10 p-5 text-sm text-[#F0D6A5]">
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
           {error}
         </div>
       )}
 
-      <section className="rounded-[1.75rem] border border-white/[0.07] bg-[#161615] overflow-hidden">
-        <div className="grid grid-cols-1 md:grid-cols-[1fr_240px] gap-3 p-5 border-b border-white/[0.05]">
+      {missingRoomScope && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Cloudbeds is connected, but <strong>Rooms READ</strong> is not granted. Room rows may be inferred from reservations instead of the official room inventory.
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+        <MetricCard label="Rooms" value={loading ? '…' : rooms.length} helper="Cloudbeds inventory / assigned rooms" />
+        <MetricCard label="Occupied" value={loading ? '…' : occupied} tone="blue" />
+        <MetricCard label="Dirty" value={loading ? '…' : dirty} tone={dirty ? 'amber' : 'default'} />
+        <MetricCard label="Clean" value={loading ? '…' : clean} tone="green" />
+      </div>
+
+      <Panel title="Room overview" description="Search room inventory and current operational state.">
+        <div className="grid gap-3 border-b border-slate-100 p-4 md:grid-cols-[1fr_240px]">
           <input
-            value={searchTerm}
-            onChange={(event) => setSearchTerm(event.target.value)}
-            className="rounded-2xl border border-white/10 bg-[#090909] px-5 py-3 text-sm text-white outline-none"
-            placeholder="Search room, room type, guest or property..."
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search room, type, guest, property or housekeeping status…"
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500"
           />
           <select
             value={propertyFilter}
             onChange={(event) => setPropertyFilter(event.target.value)}
-            className="rounded-2xl border border-white/10 bg-[#090909] px-5 py-3 text-sm text-white outline-none"
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500"
           >
             <option value="all">All properties</option>
             {properties.map((property) => (
@@ -110,56 +140,56 @@ const RoomsPage = () => {
           </select>
         </div>
 
-        <div className="divide-y divide-white/[0.05]">
-          {filteredRooms.map((room) => (
-            <div key={room.id} className="grid grid-cols-1 xl:grid-cols-[1fr_180px_180px_240px] gap-5 px-6 py-5">
-              <div>
-                <div className="text-xl font-semibold text-white">Room {room.roomNumber}</div>
-                <div className="mt-1 text-sm text-[#8F8A82]">
-                  {room.roomType || 'Room type not returned'} · {room.property?.name || 'Cloudbeds property'}
-                </div>
-              </div>
-              <Info label="Occupancy" value={formatStatus(room.occupancyStatus)} />
-              <Info label="Current guest" value={room.currentGuest || '—'} />
-              <Info
-                label="Next booking"
-                value={
-                  room.nextReservation
-                    ? `${room.nextReservation.guestName} · ${room.nextReservation.arrivalDate}`
-                    : '—'
-                }
-              />
-            </div>
-          ))}
-
-          {!loading && filteredRooms.length === 0 && (
-            <div className="p-10 text-center text-sm text-[#8F8A82]">
-              {status?.connected ? 'No rooms found in the Cloudbeds reservation data.' : 'Connect Cloudbeds sandbox first.'}
-            </div>
-          )}
-        </div>
-      </section>
+        {rows.length ? (
+          <TableShell>
+            <thead>
+              <tr>
+                <Th>Room</Th>
+                <Th>Room type</Th>
+                <Th>Property</Th>
+                <Th>Occupancy</Th>
+                <Th>Current guest</Th>
+                <Th>Housekeeping</Th>
+                <Th>Next arrival</Th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {rows.map((room) => (
+                <tr key={room.id} className="hover:bg-slate-50">
+                  <Td>
+                    <div className="font-semibold text-slate-950">{room.roomNumber || room.id}</div>
+                    <div className="mt-0.5 font-mono text-[11px] text-slate-500">{room.id}</div>
+                  </Td>
+                  <Td>{room.roomType || '—'}</Td>
+                  <Td>{room.property?.name || 'Cloudbeds property'}</Td>
+                  <Td><StatusBadge status={room.occupancyStatus || 'unknown'} /></Td>
+                  <Td>{room.currentGuest || '—'}</Td>
+                  <Td>
+                    <StatusBadge status={room.housekeeping?.status || room.housekeepingStatus || 'not tracked'} />
+                  </Td>
+                  <Td>
+                    {room.nextReservation ? (
+                      <div>
+                        <div className="font-medium text-slate-900">{room.nextReservation.guestName}</div>
+                        <div className="mt-0.5 text-xs text-slate-500">{formatDate(room.nextReservation.arrivalDate)}</div>
+                      </div>
+                    ) : '—'}
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </TableShell>
+        ) : (
+          <EmptyState
+            title="No rooms returned"
+            description={status?.connected
+              ? 'Cloudbeds did not return room inventory for the connected property.'
+              : 'Connect Cloudbeds to load room inventory.'}
+          />
+        )}
+      </Panel>
     </div>
   );
 };
-
-const Metric = ({ label, value }) => (
-  <div className="rounded-2xl border border-white/[0.07] bg-[#090909]/60 px-5 py-4">
-    <div className="text-[10px] uppercase tracking-[0.22em] text-[#8F8A82]">{label}</div>
-    <div className="mt-2 text-2xl font-semibold text-white">{value}</div>
-  </div>
-);
-
-const Info = ({ label, value }) => (
-  <div>
-    <div className="text-[10px] uppercase tracking-[0.22em] text-[#8F8A82]">{label}</div>
-    <div className="mt-2 text-sm font-semibold text-white">{value}</div>
-  </div>
-);
-
-const formatStatus = (value) =>
-  String(value || 'unknown')
-    .replaceAll('_', ' ')
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 
 export default RoomsPage;
