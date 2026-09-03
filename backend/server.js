@@ -11,6 +11,7 @@ const webhookRoutes = require('./routes/webhook.routes');
 
 const receptionRoutes = require('./routes/reception.routes');
 const cleaningRoutes = require('./routes/cleaning.routes');
+const cloudbedsRoutes = require('./routes/cloudbeds.routes');
 
 // --- GLOBAL MIDDLEWARES ---
 app.use(cors());
@@ -21,6 +22,7 @@ app.use('/api/auth', authRoutes);
 
 app.use('/api/reception', receptionRoutes);
 app.use('/api/cleaning', cleaningRoutes);
+app.use('/api/integrations/cloudbeds', cloudbedsRoutes);
 
 // --- ΔΟΚΙΜΗ ΣΥΝΔΕΣΗΣ ΜΕ MARIADB ---
 async function testDatabaseConnection() {
@@ -43,6 +45,7 @@ app.get('/api/test', (req, res) => {
     res.json({ 
         status: "Online", 
         message: "SEM Operations Hub API is running smoothly (Phase A)",
+        cloudbedsMode: process.env.CLOUDBEDS_ENVIRONMENT || 'sandbox',
         timestamp: new Date()
     });
 });
