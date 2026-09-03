@@ -18,6 +18,26 @@ const REQUIRED_SCOPES = [
     'read:hotel',
 ];
 
+const DEFAULT_AUTH_SCOPES = [
+    'read:customFields',
+    'read:dashboard',
+    'read:guest',
+    'read:hotel',
+    'read:housekeeping',
+    'read:reservation',
+    'read:resourceReservations',
+    'read:room',
+];
+
+function authorizationScopes() {
+    const configured = String(process.env.CLOUDBEDS_AUTH_SCOPES || '')
+        .split(/[\s,]+/)
+        .map((scope) => scope.trim())
+        .filter(Boolean);
+
+    return configured.length ? uniqueStrings(configured) : DEFAULT_AUTH_SCOPES;
+}
+
 let tablesReady = false;
 
 async function ensureTables() {
@@ -121,6 +141,10 @@ async function cloudbedsRequest(path, { apiKey, method = 'GET', query, form, bas
     const request = { method, headers };
 
     if (apiKey) {
+        // Cloudbeds documents both forms for cbat_ API keys. The OpenAPI PMS
+        // schema declares x-api-key, while the partner automatic-delivery guide
+        // shows Authorization: Bearer. Sending both avoids host/proxy differences.
+        headers['x-api-key'] = apiKey;
         headers.Authorization = `Bearer ${apiKey}`;
     }
 
@@ -690,6 +714,7 @@ async function exchangeAuthorizationCode(code, state) {
             ready: false,
             validationError: safeError(error),
             requiredScopes: REQUIRED_SCOPES,
+        authorizationScopes: authorizationScopes(),
             tokenResources,
             propertyResourceCaptured: properties.length > 0,
         };
@@ -2165,6 +2190,7 @@ function buildAuthorizationUrl(state) {
     url.searchParams.set('client_id', clientId);
     url.searchParams.set('redirect_uri', REDIRECT_URI);
     url.searchParams.set('response_type', 'code');
+    url.searchParams.set('scope', authorizationScopes().join(' '));
     if (state) url.searchParams.set('state', state);
     return url.toString();
 }
