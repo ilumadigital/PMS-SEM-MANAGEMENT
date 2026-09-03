@@ -130,28 +130,65 @@ async function cloudbedsRequest(path, { apiKey, method = 'GET', query, form, bas
         const error = new Error(message);
         error.status = response.status;
         error.cloudbedsPayload = payload;
+        error.requestId = response.headers.get('x-request-id') || null;
         throw error;
     }
 
     return payload;
 }
 
-async function resolvePropertyApiBase(apiKey) {
-    try {
-        const metadata = await cloudbedsRequest('/oauth/metadata', { apiKey, baseUrl: API_BASE });
-        const resolved = metadata?.data?.api?.url;
+function normalizeApiBase(value) {
+    return String(value || '').trim().replace(/\/$/, '');
+}
 
-        if (resolved) {
-            return String(resolved).replace(/\/$/, '');
+async function resolvePropertyApiBases(apiKey) {
+    const candidates = [];
+    const add = (value) => {
+        const normalized = normalizeApiBase(value);
+        if (normalized && !candidates.includes(normalized)) candidates.push(normalized);
+    };
+
+    // Cloudbeds documents /oauth/metadata as the source of truth for property
+    // localization. Try both documented hosts because API-key examples use the
+    // hotels host while the endpoint reference uses api.cloudbeds.com.
+    for (const metadataBase of [API_BASE, AUTH_BASE]) {
+        try {
+            const metadata = await cloudbedsRequest('/oauth/metadata', {
+                apiKey,
+                baseUrl: metadataBase,
+            });
+            add(metadata?.data?.api?.url);
+        } catch (error) {
+            console.warn(
+                '[CLOUDBEDS] metadata lookup failed on',
+                metadataBase,
+                error.message,
+                error.requestId || ''
+            );
         }
-    } catch (error) {
-        // Metadata is the authoritative way to resolve a property's API localization.
-        // If it is temporarily unavailable, fall back to the configured global base
-        // rather than making the whole PMS unavailable.
-        console.warn('[CLOUDBEDS] Could not resolve property API localization:', error.message);
     }
 
-    return API_BASE;
+    add(API_BASE);
+    add(AUTH_BASE);
+    return candidates;
+}
+
+function safeError(error) {
+    return {
+        status: error?.status || null,
+        code: error?.code || null,
+        message: error?.message || 'Unknown Cloudbeds error',
+        requestId: error?.requestId || null,
+    };
+}
+
+async function tryCloudbeds(path, options) {
+    try {
+        const payload = await cloudbedsRequest(path, options);
+        return { ok: true, payload, error: null };
+    } catch (error) {
+        return { ok: false, payload: null, error: safeError(error), rawError: error };
+    }
 }
 
 function propertiesFromTokenResources(resources) {
