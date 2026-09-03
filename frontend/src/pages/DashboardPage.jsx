@@ -205,7 +205,17 @@ const DashboardPage = () => {
             <div className="space-y-4 p-5">
               <div className="flex items-center justify-between">
                 <span className="text-sm text-slate-600">Status</span>
-                <StatusBadge status={error ? 'error' : status?.connected ? 'healthy' : 'not connected'} />
+                <StatusBadge
+                  status={
+                    error
+                      ? 'error'
+                      : status?.connected && status?.dataStatus === 'empty'
+                        ? 'review'
+                        : status?.connected
+                          ? 'healthy'
+                          : 'not connected'
+                  }
+                />
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-slate-600">Reservations loaded</span>
