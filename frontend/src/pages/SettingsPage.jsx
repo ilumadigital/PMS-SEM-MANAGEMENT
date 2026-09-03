@@ -112,8 +112,8 @@ const SettingsPage = () => {
         <MetricCard label="Housekeeping" value={loading ? '…' : housekeeping.length} />
         <MetricCard
           label="Sync state"
-          value={ready ? 'Ready' : checking ? 'Checking' : connected ? 'Review' : 'Offline'}
-          tone={ready ? 'green' : connected ? 'amber' : 'default'}
+          value={ready ? 'Ready' : checking ? 'Checking' : authorized ? 'Review' : 'Offline'}
+          tone={ready ? 'green' : authorized ? 'amber' : 'default'}
         />
       </div>
 
@@ -139,7 +139,7 @@ const SettingsPage = () => {
               >
                 Test live API
               </button>
-              {connected && (
+              {authorized && (
                 <>
                   <button
                     onClick={reauthorize}
