@@ -33,6 +33,11 @@ jobs:
 
             cd /home/deployer/pms-sem
 
+            echo "Prepare persistent secret env file"
+            mkdir -p /home/deployer/pms-secrets
+            touch /home/deployer/pms-secrets/backend.env
+            chmod 600 /home/deployer/pms-secrets/backend.env
+
             echo "Remove stale old config files"
             rm -f frontend/postcss.config.js frontend/postcss.config.cjs frontend/postcss.config.mjs
 
