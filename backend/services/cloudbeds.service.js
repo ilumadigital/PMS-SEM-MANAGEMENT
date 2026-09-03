@@ -378,17 +378,88 @@ async function getStoredIntegration() {
     return rows[0] || null;
 }
 
+async function deleteStoredIntegration() {
+    await ensureTables();
+    await db.query(
+        `DELETE FROM integration_credentials
+         WHERE provider = ? AND environment = ?`,
+        [PROVIDER, ENVIRONMENT]
+    );
+}
+
+function authStateHash(state) {
+    return crypto.createHash('sha256').update(String(state)).digest('hex');
+}
+
+async function createAuthorizationState() {
+    await ensureTables();
+    const state = crypto.randomBytes(32).toString('hex');
+    const stateHash = authStateHash(state);
+
+    await db.query(
+        `DELETE FROM integration_auth_states
+         WHERE provider = ? AND environment = ? AND expires_at < NOW()`,
+        [PROVIDER, ENVIRONMENT]
+    );
+
+    await db.query(
+        `INSERT INTO integration_auth_states
+            (state_hash, provider, environment, created_at, expires_at)
+         VALUES (?, ?, ?, NOW(), DATE_ADD(NOW(), INTERVAL ? MINUTE))`,
+        [stateHash, PROVIDER, ENVIRONMENT, AUTH_STATE_TTL_MINUTES]
+    );
+
+    return state;
+}
+
+async function consumeAuthorizationState(state) {
+    if (!state) {
+        const error = new Error('Missing Cloudbeds authorization state.');
+        error.code = 'CLOUDBEDS_STATE_MISSING';
+        error.status = 400;
+        throw error;
+    }
+
+    await ensureTables();
+    const stateHash = authStateHash(state);
+    const rows = await db.query(
+        `SELECT state_hash
+         FROM integration_auth_states
+         WHERE state_hash = ?
+           AND provider = ?
+           AND environment = ?
+           AND used_at IS NULL
+           AND expires_at >= NOW()
+         LIMIT 1`,
+        [stateHash, PROVIDER, ENVIRONMENT]
+    );
+
+    if (!rows[0]) {
+        const error = new Error('Cloudbeds authorization state is invalid or expired. Start the connection again.');
+        error.code = 'CLOUDBEDS_STATE_INVALID';
+        error.status = 400;
+        throw error;
+    }
+
+    await db.query(
+        `UPDATE integration_auth_states
+         SET used_at = NOW()
+         WHERE state_hash = ?`,
+        [stateHash]
+    );
+}
+
 async function getApiKey() {
-    // Prefer the API key delivered by the property that most recently
-    // authorized the SEM app. A static CLOUDBEDS_API_KEY is only a fallback
-    // for local/manual development. Otherwise an old env key can silently
-    // point the PMS at a different property than the one just connected.
     const integration = await getStoredIntegration();
     if (integration) {
         return decryptSecret(integration);
     }
 
-    if (process.env.CLOUDBEDS_API_KEY) {
+    // Automatic API-key delivery is the production path. A manually supplied
+    // CLOUDBEDS_API_KEY is ignored unless explicitly enabled, preventing a stale
+    // sandbox key in backend.env from silently taking over a fresh connection.
+    const allowEnvApiKey = String(process.env.CLOUDBEDS_ALLOW_ENV_API_KEY || 'false') === 'true';
+    if (allowEnvApiKey && process.env.CLOUDBEDS_API_KEY) {
         return process.env.CLOUDBEDS_API_KEY.trim();
     }
 
@@ -398,7 +469,150 @@ async function getApiKey() {
     throw error;
 }
 
-async function exchangeAuthorizationCode(code) {
+async function getVerifiedAppState(apiKey, propertyIds = []) {
+    const apiBases = await resolvePropertyApiBases(apiKey);
+    const targets = propertyIds.length ? [...propertyIds, null] : [null];
+    const attempts = [];
+
+    for (const apiBase of apiBases) {
+        for (const propertyId of targets) {
+            const result = await tryCloudbeds('/getAppState', {
+                apiKey,
+                baseUrl: apiBase,
+                query: { propertyID: propertyId },
+            });
+
+            if (result.ok) {
+                return {
+                    verified: true,
+                    appState: result.payload?.data?.app_state || 'enabled',
+                    apiBase,
+                    propertyId: propertyId || '',
+                    attempts,
+                };
+            }
+
+            attempts.push({
+                apiBase,
+                propertyId: propertyId || '',
+                error: result.error,
+            });
+
+            if (result.error?.status === 401 || result.error?.status === 403) {
+                continue;
+            }
+        }
+    }
+
+    const revoked = attempts.length > 0 && attempts.every(
+        (attempt) => [401, 403].includes(Number(attempt.error?.status))
+    );
+
+    return {
+        verified: false,
+        revoked,
+        appState: revoked ? 'disabled' : 'unknown',
+        apiBase: apiBases[0] || API_BASE,
+        propertyId: '',
+        attempts,
+    };
+}
+
+async function disableRemoteAppState(apiKey, propertyIds = []) {
+    const apiBases = await resolvePropertyApiBases(apiKey);
+    const targets = propertyIds.length ? [...propertyIds, null] : [null];
+    const attempts = [];
+
+    for (const apiBase of apiBases) {
+        for (const propertyId of targets) {
+            const result = await tryCloudbeds('/postAppState', {
+                apiKey,
+                baseUrl: apiBase,
+                method: 'POST',
+                form: {
+                    propertyID: propertyId,
+                    app_state: 'disabled',
+                },
+            });
+
+            if (result.ok) {
+                return {
+                    success: true,
+                    apiBase,
+                    propertyId: propertyId || '',
+                    attempts,
+                };
+            }
+
+            attempts.push({
+                apiBase,
+                propertyId: propertyId || '',
+                error: result.error,
+            });
+
+            // If Cloudbeds already revoked the key, the local session should still
+            // be removed; there is nothing left to disable remotely.
+            if ([401, 403].includes(Number(result.error?.status))) {
+                continue;
+            }
+        }
+    }
+
+    const alreadyRevoked = attempts.length > 0 && attempts.every(
+        (attempt) => [401, 403].includes(Number(attempt.error?.status))
+    );
+
+    return {
+        success: alreadyRevoked,
+        alreadyRevoked,
+        attempts,
+    };
+}
+
+async function disconnectIntegration() {
+    const stored = await getStoredIntegration();
+    if (!stored) {
+        return { disconnected: true, alreadyDisconnected: true };
+    }
+
+    const properties = parseStoredProperties(stored);
+    let apiKey;
+
+    try {
+        apiKey = decryptSecret(stored);
+    } catch (error) {
+        await deleteStoredIntegration();
+        return {
+            disconnected: true,
+            localCredentialRemoved: true,
+            warning: 'Stored Cloudbeds credential could not be decrypted and was removed locally.',
+        };
+    }
+
+    const propertyIds = uniqueStrings(properties.map((property) => property.id));
+    const remote = await disableRemoteAppState(apiKey, propertyIds);
+
+    if (!remote.success) {
+        const error = new Error(
+            'Cloudbeds could not be disconnected remotely. Reauthorization was stopped to avoid leaving two active sessions.'
+        );
+        error.code = 'CLOUDBEDS_DISCONNECT_FAILED';
+        error.status = 502;
+        error.details = remote.attempts;
+        throw error;
+    }
+
+    await deleteStoredIntegration();
+
+    return {
+        disconnected: true,
+        remote,
+    };
+}
+
+async function exchangeAuthorizationCode(code, state) {
+    await consumeAuthorizationState(state);
+
     if (ENVIRONMENT !== 'sandbox' && String(process.env.CLOUDBEDS_SANDBOX_ONLY || 'true') !== 'false') {
         const error = new Error('This build is locked to Cloudbeds sandbox mode.');
         error.code = 'CLOUDBEDS_SANDBOX_ONLY';
@@ -427,55 +641,116 @@ async function exchangeAuthorizationCode(code) {
 
     const apiKey = tokenPayload?.access_token;
     if (!apiKey || !String(apiKey).startsWith('cbat_')) {
-        const error = new Error('Cloudbeds did not return a valid API key.');
+        const error = new Error('Cloudbeds did not return a valid automatic-delivery API key.');
         error.code = 'CLOUDBEDS_INVALID_API_KEY';
         throw error;
     }
 
-    // Cloudbeds includes the resources associated with the delivered API key.
-    // Persist the property IDs immediately so reservation requests can target
-    // the exact property that authorized the SEM app without requiring read:hotel.
     const properties = propertiesFromTokenResources(tokenPayload?.resources);
     await saveIntegration(apiKey, properties);
 
-    return { environment: ENVIRONMENT, properties };
+    let snapshot;
+    try {
+        snapshot = await listPmsSnapshot();
+    } catch (error) {
+        // Keep the newly-issued key so diagnostics can be viewed in the PMS, but
+        // never present the connection as data-ready when validation failed.
+        return {
+            environment: ENVIRONMENT,
+            properties,
+            ready: false,
+            validationError: safeError(error),
+            requiredScopes: REQUIRED_SCOPES,
+        };
+    }
+
+    return {
+        environment: ENVIRONMENT,
+        properties: snapshot.properties,
+        ready: snapshot.dataStatus === 'ready',
+        dataStatus: snapshot.dataStatus,
+        requiresReauthorization: snapshot.requiresReauthorization,
+        diagnostics: snapshot.diagnostics,
+        requiredScopes: REQUIRED_SCOPES,
+    };
 }
 
 async function getConnectionStatus() {
-    try {
-        // Merely checking the connection must not consume read:hotel.
-        // A delivered API key is enough to consider the integration connected;
-        // reservation access is validated by the reservations endpoint itself.
-        await getApiKey();
-        const stored = await getStoredIntegration();
+    const stored = await getStoredIntegration();
 
-        let properties = [];
-        try {
-            properties = stored?.properties_json ? JSON.parse(stored.properties_json) : [];
-        } catch {
-            properties = [];
+    if (!stored) {
+        const allowEnvApiKey = String(process.env.CLOUDBEDS_ALLOW_ENV_API_KEY || 'false') === 'true';
+        if (!allowEnvApiKey || !process.env.CLOUDBEDS_API_KEY) {
+            return {
+                connected: false,
+                connectionVerified: false,
+                appState: 'disabled',
+                environment: ENVIRONMENT,
+                source: null,
+                properties: [],
+                requiredScopes: REQUIRED_SCOPES,
+                lastSyncAt: null,
+                lastWebhookAt: null,
+            };
         }
+    }
 
-        return {
-            connected: true,
-            environment: ENVIRONMENT,
-            source: stored ? 'automatic_delivery' : 'environment',
-            properties,
-            lastSyncAt: stored?.last_sync_at || null,
-            lastWebhookAt: stored?.last_webhook_at || null,
-        };
+    let apiKey;
+    try {
+        apiKey = await getApiKey();
     } catch (error) {
         if (error.code === 'CLOUDBEDS_NOT_CONNECTED') {
             return {
                 connected: false,
+                connectionVerified: false,
+                appState: 'disabled',
                 environment: ENVIRONMENT,
+                source: null,
                 properties: [],
+                requiredScopes: REQUIRED_SCOPES,
                 lastSyncAt: null,
                 lastWebhookAt: null,
             };
         }
         throw error;
     }
+
+    const properties = parseStoredProperties(stored);
+    const propertyIds = uniqueStrings(properties.map((property) => property.id));
+    const verification = await getVerifiedAppState(apiKey, propertyIds);
+
+    if (verification.revoked || verification.appState === 'disabled') {
+        if (stored) await deleteStoredIntegration();
+
+        return {
+            connected: false,
+            connectionVerified: true,
+            appState: 'disabled',
+            environment: ENVIRONMENT,
+            source: null,
+            properties: [],
+            requiredScopes: REQUIRED_SCOPES,
+            lastSyncAt: null,
+            lastWebhookAt: null,
+        };
+    }
+
+    const connected = verification.verified && verification.appState === 'enabled';
+
+    return {
+        connected,
+        connectionVerified: verification.verified,
+        appState: verification.appState,
+        environment: ENVIRONMENT,
+        source: stored ? 'automatic_delivery' : 'environment',
+        properties,
+        connectedPropertyIds: propertyIds,
+        requiredScopes: REQUIRED_SCOPES,
+        verificationApiBase: verification.apiBase,
+        verificationAttempts: verification.verified ? undefined : verification.attempts,
+        lastSyncAt: stored?.last_sync_at || null,
+        lastWebhookAt: stored?.last_webhook_at || null,
+    };
 }
 
 function isScopeError(error) {
