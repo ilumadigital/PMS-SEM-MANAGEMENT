@@ -14,7 +14,7 @@ import {
 } from '../components/PmsUi';
 
 const BookingsPage = () => {
-  const { reservations, properties, loading, status, error, refresh, connect } =
+  const { reservations, properties, diagnostics, loading, status, error, refresh, connect } =
     useContext(CloudbedsDataContext);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -76,6 +76,32 @@ const BookingsPage = () => {
         <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
           <div className="text-sm font-semibold text-rose-800">Cloudbeds sync issue</div>
           <div className="mt-1 text-xs text-rose-700">{error}</div>
+        </div>
+      )}
+      {status?.connected && !loading && reservations.length === 0 && !error && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div className="text-sm font-semibold text-amber-900">
+                Cloudbeds is connected, but no reservation records were returned
+              </div>
+              <div className="mt-1 text-xs leading-5 text-amber-800">
+                API: {status?.cloudbedsReservationEndpoint || diagnostics?.reservationEndpoint || 'getReservations'} ·
+                Property IDs: {(status?.connectedPropertyIds || []).join(', ') || 'not captured'}.
+                {(diagnostics?.missingScopes || []).length
+                  ? ` Missing permissions: ${diagnostics.missingScopes.join(', ')}.`
+                  : ''}
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button onClick={refresh} className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-900">
+                Retry API
+              </button>
+              <button onClick={connect} className="rounded-lg bg-amber-700 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-800">
+                Re-authorize property
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -179,7 +205,13 @@ const BookingsPage = () => {
           ) : (
             <EmptyState
               title="No reservations found"
-              description={status?.connected ? 'Try changing the filters.' : 'Connect Cloudbeds to load reservations.'}
+              description={
+                status?.connected && reservations.length === 0
+                  ? 'The connected Cloudbeds token returned no reservations. Use the diagnostic banner above to retry or re-authorize the property.'
+                  : status?.connected
+                    ? 'Try changing the filters.'
+                    : 'Connect Cloudbeds to load reservations.'
+              }
             />
           )}
         </Panel>
