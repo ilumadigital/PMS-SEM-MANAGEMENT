@@ -1,15 +1,5 @@
-import React, { useMemo, useState } from 'react';
-
-import {
-  cleaningTasks,
-  properties,
-  reservations,
-  rooms,
-  semToday,
-  semTomorrow,
-  shuttleRequests,
-} from '../data/semDemoData';
-
+import { CloudbedsDataContext } from '../context/CloudbedsDataContext';
+import React, { useContext, useMemo, useState } from 'react';
 import {
   getPropertyById,
   getRoomById,
@@ -24,6 +14,9 @@ import {
 } from '../utils/semOperationsMetrics';
 
 const ReceptionDash = () => {
+  const { reservations, properties, rooms, status, loading, error, refresh, connect } = useContext(CloudbedsDataContext);
+  const cleaningTasks = [];
+  const shuttleRequests = [];
   const [selectedFilter, setSelectedFilter] = useState('today');
 
   const receptionData = useMemo(() => {
@@ -40,13 +33,13 @@ const ReceptionDash = () => {
       ...todayArrivals.map((reservation) => ({
         ...reservation,
         flowType: 'arrival',
-        flowDate: semToday,
+        flowDate: reservation.arrivalDate,
         flowTime: reservation.arrivalTime,
       })),
       ...todayDepartures.map((reservation) => ({
         ...reservation,
         flowType: 'departure',
-        flowDate: semToday,
+        flowDate: reservation.departureDate,
         flowTime: reservation.departureTime,
       })),
     ].sort((a, b) => String(a.flowTime || '99:99').localeCompare(String(b.flowTime || '99:99')));
@@ -77,7 +70,7 @@ const ReceptionDash = () => {
       shuttle,
       enrichedFlow,
     };
-  }, []);
+  }, [reservations, properties, rooms]);
 
   const priorityQueue = [
     ...receptionData.missingInfo.map((reservation) => ({
@@ -140,7 +133,7 @@ const ReceptionDash = () => {
             </h1>
 
             <p className="mt-7 max-w-2xl text-base leading-8 text-[#BEB7AD]">
-              Manage today’s arrivals, departures, missing guest information,
+              Live reception view from the connected Cloudbeds sandbox: arrivals, departures and missing guest information,
               cleaning readiness, shuttle requests and reception notes from one place.
             </p>
 
@@ -148,7 +141,7 @@ const ReceptionDash = () => {
               <HeroMetric label="Arrivals today" value={receptionData.todayArrivals.length} />
               <HeroMetric label="Departures today" value={receptionData.todayDepartures.length} />
               <HeroMetric label="Missing info" value={receptionData.missingInfo.length} tone="warning" />
-              <HeroMetric label="Rooms ready" value={receptionData.roomStatus.ready} />
+              <HeroMetric label="Cloudbeds rooms" value={rooms.length} />
             </div>
           </div>
 

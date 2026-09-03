@@ -1,10 +1,5 @@
-import React, { useMemo, useState } from 'react';
-
-import {
-  communications,
-  properties,
-  syncEvents,
-} from '../data/semDemoData';
+import React, { useContext, useEffect, useMemo, useState } from 'react';
+import { CloudbedsDataContext } from '../context/CloudbedsDataContext';
 
 const initialSystemSettings = {
   cloudbedsEnabled: true,
@@ -92,7 +87,7 @@ const phaseModules = [
     phase: 'Phase A',
     title: 'Core Platform, Reception, Sync & Cleaning',
     status: 'active',
-    modules: ['Cloudbeds / Hosthub Sync', 'Reception Dashboard', 'Cleaning Tasks', 'Mobile Cleaning View'],
+    modules: ['Cloudbeds Sandbox Sync', 'Reception Dashboard', 'Cleaning Tasks', 'Mobile Cleaning View'],
   },
   {
     phase: 'Phase B',
@@ -109,17 +104,36 @@ const phaseModules = [
 ];
 
 const SettingsPage = () => {
-  const [settings, setSettings] = useState(initialSystemSettings);
-  const [selectedPropertyId, setSelectedPropertyId] = useState(properties[0]?.id || '');
+  const { properties, reservations, status, error, refresh, connect } = useContext(CloudbedsDataContext);
+  const communications = [];
+  const syncEvents = [
+    {
+      id: 'cloudbeds-sandbox',
+      provider: 'Cloudbeds Sandbox',
+      status: status?.connected && !error ? 'healthy' : 'warning',
+    },
+  ];
+
+  const [settings, setSettings] = useState({
+    ...initialSystemSettings,
+    hosthubEnabled: false,
+  });
+  const [selectedPropertyId, setSelectedPropertyId] = useState('');
   const [syncInterval, setSyncInterval] = useState(initialSystemSettings.syncInterval);
   const [defaultCheckinTime, setDefaultCheckinTime] = useState('15:00');
   const [defaultCheckoutTime, setDefaultCheckoutTime] = useState('11:00');
   const [cleaningBuffer, setCleaningBuffer] = useState('90');
   const [shuttleBuffer, setShuttleBuffer] = useState('45');
 
+  useEffect(() => {
+    if (!selectedPropertyId && properties[0]?.id) {
+      setSelectedPropertyId(properties[0].id);
+    }
+  }, [properties, selectedPropertyId]);
+
   const selectedProperty = useMemo(() => {
     return properties.find((property) => property.id === selectedPropertyId);
-  }, [selectedPropertyId]);
+  }, [properties, selectedPropertyId]);
 
   const healthySyncCount = syncEvents.filter((event) => event.status === 'healthy').length;
   const warningSyncCount = syncEvents.filter((event) => event.status === 'warning').length;
@@ -225,7 +239,7 @@ const SettingsPage = () => {
         <div className="rounded-[1.75rem] border border-white/[0.07] bg-[#161615] overflow-hidden">
           <SectionHeader
             eyebrow="Integrations"
-            title="Cloudbeds / Hosthub sync settings"
+            title="Cloudbeds Sandbox sync settings"
             action="Test sync"
           />
 

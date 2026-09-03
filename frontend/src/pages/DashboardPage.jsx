@@ -1,15 +1,5 @@
-import React from 'react';
-
-import {
-  cleaningTasks,
-  communications,
-  linenInventory,
-  properties,
-  reservations,
-  rooms,
-  shuttleRequests,
-  syncEvents,
-} from '../data/semDemoData';
+import React, { useContext } from 'react';
+import { CloudbedsDataContext } from '../context/CloudbedsDataContext';
 
 import {
   buildSemDashboardMetrics,
@@ -17,6 +7,34 @@ import {
 } from '../utils/semOperationsMetrics';
 
 const DashboardPage = () => {
+  const {
+    reservations,
+    properties,
+    rooms,
+    status,
+    loading,
+    error,
+    refresh,
+    connect,
+  } = useContext(CloudbedsDataContext);
+
+  const cleaningTasks = [];
+  const shuttleRequests = [];
+  const communications = [];
+  const linenInventory = [];
+  const syncEvents = [
+    {
+      id: 'cloudbeds-sandbox',
+      provider: 'Cloudbeds Sandbox',
+      status: status?.connected && !error ? 'healthy' : 'warning',
+      lastSyncAt: status?.lastSyncAt || 'not synced',
+      message: error || (status?.connected ? 'Live Cloudbeds sandbox connection active.' : 'Cloudbeds sandbox is not connected.'),
+      newReservations: reservations.length,
+      modifiedReservations: 0,
+      cancelledReservations: reservations.filter((reservation) => reservation.status === 'cancelled').length,
+    },
+  ];
+
   const metrics = buildSemDashboardMetrics({
     properties,
     rooms,
@@ -53,12 +71,16 @@ const DashboardPage = () => {
             </h1>
 
             <p className="mt-7 max-w-2xl text-base leading-8 text-[#BEB7AD]">
-              Unified control center for Cloudbeds and Hosthub reservations,
+              Live control center using the connected Cloudbeds sandbox reservations,
               check-in/out details, room readiness, cleaning tasks and shuttle requests.
             </p>
 
             <div className="mt-10 grid grid-cols-1 md:grid-cols-3 gap-3">
-              <HeroMetric label="Cloudbeds / Hosthub" value={`${metrics.sync.healthy}/${metrics.sync.healthy + metrics.sync.warning + metrics.sync.error} healthy`} />
+              <HeroMetric
+                label="Cloudbeds sandbox"
+                value={loading ? 'Loading…' : status?.connected ? `${reservations.length} live reservations` : 'Not connected'}
+                tone={status?.connected ? 'good' : 'warning'}
+              />
               <HeroMetric label="Missing info" value={metrics.missingInfoReservations.length} tone={metrics.missingInfoReservations.length ? 'warning' : 'good'} />
               <HeroMetric label="Occupancy" value={`${metrics.occupancyRate}%`} />
             </div>
@@ -139,14 +161,20 @@ const DashboardPage = () => {
         <div className="rounded-[1.75rem] border border-white/[0.07] bg-[#161615] overflow-hidden">
           <SectionHeader
             eyebrow="Sync layer"
-            title="Cloudbeds / Hosthub"
-            action="Logs"
+            title="Cloudbeds Sandbox"
+            action={status?.connected ? "Refresh" : "Connect"}
           />
 
           <div className="p-5 space-y-4">
             {syncEvents.map((event) => (
               <SyncCard key={event.id} event={event} />
             ))}
+            <button
+              onClick={status?.connected ? refresh : connect}
+              className="w-full rounded-2xl border border-[#C9A46A]/25 px-4 py-3 text-[10px] uppercase tracking-[0.22em] text-[#C9A46A] hover:bg-[#C9A46A]/10 transition-all"
+            >
+              {status?.connected ? 'Refresh Cloudbeds' : 'Connect Sandbox'}
+            </button>
           </div>
         </div>
       </section>
@@ -308,7 +336,7 @@ const SyncCard = ({ event }) => (
 );
 
 const PropertyOpsCard = ({ property, rooms, tasks }) => {
-  const ready = rooms.filter((room) => room.housekeepingStatus === 'ready').length;
+  const ready = rooms.length;
   const pending = tasks.filter((task) => task.status !== 'completed').length;
 
   return (
@@ -328,13 +356,13 @@ const PropertyOpsCard = ({ property, rooms, tasks }) => {
         <div className="text-right">
           <div className="text-2xl font-semibold text-white">{ready}/{rooms.length}</div>
           <div className="mt-1 text-[10px] uppercase tracking-[0.2em] text-[#8F8A82]">
-            Ready rooms
+            Cloudbeds rooms
           </div>
         </div>
       </div>
 
       <div className="mt-6 grid grid-cols-2 gap-3">
-        <MiniStat label="Open tasks" value={pending} />
+        <MiniStat label="Local tasks" value={pending} />
         <MiniStat label="Total rooms" value={property.totalRooms} />
       </div>
     </div>

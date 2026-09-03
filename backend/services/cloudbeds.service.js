@@ -448,6 +448,22 @@ function normalizeReservation(reservation) {
         pick(reservation, ['guestName', 'primaryGuestName'], `${firstName} ${lastName}`.trim() || 'Unknown Guest')
     );
 
+    const guestEmail = String(
+        pick(
+            reservation,
+            ['guestEmail', 'email', 'guest.email', 'primaryGuest.email'],
+            pick(primaryGuest, ['guestEmail', 'email'], '')
+        ) || ''
+    );
+
+    const guestPhone = String(
+        pick(
+            reservation,
+            ['guestPhone', 'phone', 'guest.phone', 'primaryGuest.phone'],
+            pick(primaryGuest, ['guestPhone', 'phone'], '')
+        ) || ''
+    );
+
     const roomCollection = [
         ...asArray(reservation.rooms),
         ...asArray(reservation.roomList),
@@ -507,10 +523,15 @@ function normalizeReservation(reservation) {
         syncStatus: 'synced',
         syncEvent: 'live_cloudbeds',
         guestName,
+        guestEmail,
+        guestPhone,
         propertyId: String(property.id),
         roomId,
+        roomIds,
         roomNumber,
+        roomNumbers,
         roomType: roomTypeNames.join(', '),
+        roomTypes: roomTypeNames,
         arrivalDate: pick(reservation, ['startDate', 'checkInDate'], ''),
         arrivalTime,
         departureDate: pick(reservation, ['endDate', 'checkOutDate'], ''),

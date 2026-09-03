@@ -1,19 +1,14 @@
-import React, { useMemo, useState } from 'react';
-
-import {
-  cleaningTasks,
-  properties,
-  reservations,
-  rooms,
-  shuttleRequests,
-} from '../data/semDemoData';
-
+import React, { useContext, useMemo, useState } from 'react';
+import { CloudbedsDataContext } from '../context/CloudbedsDataContext';
 import {
   getPropertyById,
   getRoomById,
 } from '../utils/semOperationsMetrics';
 
 const SupervisorPanel = () => {
+  const { reservations, properties, rooms } = useContext(CloudbedsDataContext);
+  const cleaningTasks = [];
+  const shuttleRequests = [];
   const [tasks, setTasks] = useState(cleaningTasks);
   const [activeFilter, setActiveFilter] = useState('all');
 

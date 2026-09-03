@@ -7,6 +7,7 @@ import {
 } from 'react-router-dom';
 
 import { AuthProvider, AuthContext } from './context/AuthContext';
+import { CloudbedsDataProvider } from './context/CloudbedsDataContext';
 import Login from './pages/Login';
 import AppShell from './components/AppShell';
 
@@ -31,7 +32,8 @@ const ProtectedApp = () => {
   }
 
   return (
-    <BrowserRouter>
+    <CloudbedsDataProvider>
+      <BrowserRouter>
       <Routes>
         <Route path="/" element={<AppShell />}>
           <Route index element={<Navigate to="/dashboard" replace />} />
@@ -51,7 +53,8 @@ const ProtectedApp = () => {
 
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
-    </BrowserRouter>
+      </BrowserRouter>
+    </CloudbedsDataProvider>
   );
 };
 
