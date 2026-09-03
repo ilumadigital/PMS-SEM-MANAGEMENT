@@ -1144,37 +1144,268 @@ function applyOperations(reservation, operations) {
     return merged;
 }
 
-async function listReservations() {
-    const apiKey = await getApiKey();
-    const stored = await getStoredIntegration();
-
-    let storedProperties = [];
+function parseStoredProperties(record) {
+    if (!record?.properties_json) return [];
     try {
-        storedProperties = stored?.properties_json ? JSON.parse(stored.properties_json) || [] : [];
+        const parsed = JSON.parse(record.properties_json);
+        return Array.isArray(parsed) ? parsed : [];
     } catch {
-        storedProperties = [];
+        return [];
+    }
+}
+
+function mergeProperties(...lists) {
+    const map = new Map();
+
+    for (const property of lists.flat()) {
+        if (!property?.id) continue;
+        const id = String(property.id);
+        const current = map.get(id) || {};
+        map.set(id, {
+            id,
+            name:
+                property.name && property.name !== 'Cloudbeds Sandbox Property'
+                    ? property.name
+                    : current.name || property.name || 'Cloudbeds Sandbox Property',
+            city: property.city || current.city || '',
+        });
     }
 
-    const storedPropertyIds = uniqueStrings(storedProperties.map((property) => property.id));
-    const fetched = await fetchAllReservations(apiKey, storedPropertyIds);
-    let rawReservations = fetched.reservations;
+    return filterAllowedProperties(Array.from(map.values()));
+}
 
-    const inferredProperties = filterAllowedProperties(
-        Array.from(
-            new Map(
-                [
-                    ...storedProperties,
-                    ...rawReservations.map((reservation) => ({
-                        id: String(pick(reservation, ['propertyID', 'propertyId'], '')),
-                        name: String(pick(reservation, ['propertyName'], 'Cloudbeds Sandbox Property')),
-                        city: String(pick(reservation, ['propertyCity'], '') || ''),
-                    })),
-                ]
-                    .filter((property) => property?.id)
-                    .map((property) => [String(property.id), property])
-            ).values()
-        )
+function deriveGuestsFromReservations(reservations) {
+    const map = new Map();
+
+    for (const reservation of reservations) {
+        const key =
+            reservation.guestId ||
+            reservation.guestEmail ||
+            reservation.guestPhone ||
+            reservation.guestName ||
+            reservation.id;
+
+        if (!map.has(String(key))) {
+            map.set(String(key), {
+                id: String(key),
+                guestId: reservation.guestId || '',
+                profileId: reservation.profileId || '',
+                name: reservation.guestName || 'Unknown Guest',
+                email: reservation.guestEmail || '',
+                phone: reservation.guestPhone || '',
+                country: '',
+                city: '',
+                reservationId: reservation.id,
+                isMainGuest: true,
+                isAnonymized: false,
+                bookings: 0,
+                source: 'cloudbeds',
+            });
+        }
+
+        map.get(String(key)).bookings += 1;
+    }
+
+    return Array.from(map.values());
+}
+
+function mergeGuests(directGuests, reservations) {
+    const derived = deriveGuestsFromReservations(reservations);
+    const map = new Map();
+
+    const keysFor = (guest) =>
+        uniqueStrings([
+            guest.guestId,
+            guest.profileId,
+            guest.email && String(guest.email).toLowerCase(),
+            guest.phone,
+            guest.name,
+            guest.id,
+        ]);
+
+    for (const guest of directGuests) {
+        const key = keysFor(guest)[0] || guest.id;
+        map.set(String(key), { ...guest, bookings: 0 });
+    }
+
+    const findExistingKey = (guest) => {
+        const candidateKeys = keysFor(guest);
+        for (const [existingKey, existing] of map.entries()) {
+            const existingKeys = new Set(keysFor(existing));
+            if (candidateKeys.some((key) => existingKeys.has(key))) return existingKey;
+        }
+        return null;
+    };
+
+    for (const guest of derived) {
+        const existingKey = findExistingKey(guest);
+        if (existingKey) {
+            const current = map.get(existingKey);
+            map.set(existingKey, {
+                ...current,
+                name: current.name || guest.name,
+                email: current.email || guest.email,
+                phone: current.phone || guest.phone,
+                bookings: Number(current.bookings || 0) + Number(guest.bookings || 0),
+            });
+        } else {
+            map.set(String(guest.id), guest);
+        }
+    }
+
+    return Array.from(map.values()).sort((a, b) =>
+        String(a.name || '').localeCompare(String(b.name || ''))
     );
+}
+
+function deriveRoomsFromReservations(reservations) {
+    const map = new Map();
+
+    for (const reservation of reservations) {
+        const ids = reservation.roomIds?.length
+            ? reservation.roomIds
+            : [reservation.roomId || `unassigned-${reservation.id}`];
+        const numbers = reservation.roomNumbers?.length
+            ? reservation.roomNumbers
+            : [reservation.roomNumber || 'Unassigned'];
+        const types = reservation.roomTypes?.length
+            ? reservation.roomTypes
+            : [reservation.roomType || ''];
+
+        const count = Math.max(ids.length, numbers.length, 1);
+        for (let index = 0; index < count; index += 1) {
+            const id = String(ids[index] || `${ids[0]}-${index + 1}`);
+            if (id.startsWith('cloudbeds-unassigned-') || id.startsWith('unassigned-')) continue;
+
+            if (!map.has(id)) {
+                map.set(id, {
+                    id,
+                    propertyId: reservation.propertyId || '',
+                    roomNumber: String(numbers[index] || numbers[0] || ''),
+                    roomTypeId: '',
+                    roomType: String(types[index] || types[0] || ''),
+                    maxGuests: 0,
+                    isPrivate: null,
+                    isVirtual: false,
+                    blocked: false,
+                    housekeepingStatus: 'not_tracked',
+                    occupancyStatus: 'unknown',
+                    nextArrivalBookingId: null,
+                    currentGuest: null,
+                    lastUpdatedAt: 'Cloudbeds',
+                });
+            }
+        }
+    }
+
+    return Array.from(map.values());
+}
+
+function decorateRooms(officialRooms, reservations, housekeeping) {
+    const today = new Date().toISOString().slice(0, 10);
+    const baseRooms = officialRooms.length ? officialRooms : deriveRoomsFromReservations(reservations);
+    const housekeepingMap = new Map(
+        housekeeping.filter((item) => item.roomId).map((item) => [String(item.roomId), item])
+    );
+
+    return baseRooms.map((room) => {
+        const roomReservations = reservations
+            .filter((reservation) => {
+                const ids = reservation.roomIds?.length
+                    ? reservation.roomIds.map(String)
+                    : [String(reservation.roomId || '')];
+                return ids.includes(String(room.id));
+            })
+            .filter((reservation) => reservation.status !== 'cancelled')
+            .sort((a, b) => String(a.arrivalDate || '').localeCompare(String(b.arrivalDate || '')));
+
+        const inHouse = roomReservations.find(
+            (reservation) =>
+                reservation.status === 'in_house' ||
+                (
+                    reservation.arrivalDate &&
+                    reservation.departureDate &&
+                    reservation.arrivalDate <= today &&
+                    reservation.departureDate > today
+                )
+        );
+
+        const checkoutToday = roomReservations.find(
+            (reservation) => reservation.departureDate === today
+        );
+        const arrivingToday = roomReservations.find(
+            (reservation) => reservation.arrivalDate === today
+        );
+        const nextArrival = roomReservations.find(
+            (reservation) => reservation.arrivalDate >= today
+        );
+        const hk = housekeepingMap.get(String(room.id));
+
+        return {
+            ...room,
+            occupancyStatus: checkoutToday
+                ? 'checkout_today'
+                : inHouse
+                    ? 'occupied'
+                    : arrivingToday
+                        ? 'arriving_today'
+                        : 'vacant',
+            currentGuest: inHouse?.guestName || null,
+            nextArrivalBookingId: nextArrival?.id || null,
+            housekeepingStatus: hk?.status || room.housekeepingStatus || 'not_tracked',
+            housekeeping: hk || null,
+        };
+    });
+}
+
+function fallbackDashboard(reservations, rooms) {
+    const today = new Date().toISOString().slice(0, 10);
+    const arrivals = reservations.filter(
+        (reservation) => reservation.arrivalDate === today && reservation.status !== 'cancelled'
+    ).length;
+    const departures = reservations.filter(
+        (reservation) => reservation.departureDate === today && reservation.status !== 'cancelled'
+    ).length;
+    const inHouse = reservations.filter(
+        (reservation) =>
+            reservation.status === 'in_house' ||
+            (
+                reservation.arrivalDate &&
+                reservation.departureDate &&
+                reservation.arrivalDate <= today &&
+                reservation.departureDate > today &&
+                reservation.status !== 'cancelled'
+            )
+    ).length;
+    const occupiedRooms = rooms.filter((room) =>
+        ['occupied', 'checkout_today'].includes(room.occupancyStatus)
+    ).length;
+
+    return {
+        roomsOccupied: occupiedRooms,
+        percentageOccupied: rooms.length ? Math.round((occupiedRooms / rooms.length) * 100) : 0,
+        arrivals,
+        departures,
+        inHouse,
+    };
+}
+
+async function listPmsSnapshot() {
+    const apiKey = await getApiKey();
+    const stored = await getStoredIntegration();
+    const storedProperties = parseStoredProperties(stored);
+    const apiBases = await resolvePropertyApiBases(apiKey);
+
+    const initialPropertyIds = uniqueStrings(storedProperties.map((property) => property.id));
+    const resources = await discoverCloudbedsResources(apiKey, apiBases, initialPropertyIds);
+    const discoveredPropertyIds = uniqueStrings([
+        ...initialPropertyIds,
+        ...resources.properties.map((property) => property.id),
+        ...resources.rooms.map((room) => room.propertyId),
+    ]);
+
+    const fetched = await fetchAllReservations(apiKey, apiBases, discoveredPropertyIds);
+    let rawReservations = fetched.reservations;
 
     const allowed = allowedPropertyIds();
     if (allowed.length) {
@@ -1184,7 +1415,21 @@ async function listReservations() {
         );
     }
 
-    const propertyMap = new Map(inferredProperties.map((property) => [property.id, property]));
+    const reservationProperties = rawReservations
+        .map((reservation) => ({
+            id: String(pick(reservation, ['propertyID', 'propertyId'], '')),
+            name: String(pick(reservation, ['propertyName'], 'Cloudbeds Sandbox Property')),
+            city: String(pick(reservation, ['propertyCity'], '') || ''),
+        }))
+        .filter((property) => property.id);
+
+    const properties = mergeProperties(
+        storedProperties,
+        resources.properties,
+        reservationProperties
+    );
+
+    const propertyMap = new Map(properties.map((property) => [property.id, property]));
     const normalized = rawReservations
         .map((reservation) => {
             const propertyId = String(pick(reservation, ['propertyID', 'propertyId'], ''));
@@ -1192,33 +1437,143 @@ async function listReservations() {
                 ...reservation,
                 __property: propertyMap.get(propertyId) || {
                     id: propertyId,
-                    name: String(pick(reservation, ['propertyName'], 'Cloudbeds Sandbox Property')),
-                    city: String(pick(reservation, ['propertyCity'], '') || ''),
+                    name: 'Cloudbeds Sandbox Property',
+                    city: '',
                 },
             });
         })
         .filter((reservation) => reservation.id);
 
     const operations = await getOperationsMap(normalized.map((reservation) => reservation.id));
-    const reservations = normalized.map((reservation) =>
+    let reservations = normalized.map((reservation) =>
         applyOperations(reservation, operations.get(reservation.id))
     );
+
+    const directGuestMap = new Map();
+    for (const guest of resources.guests) {
+        if (guest.guestId) directGuestMap.set(String(guest.guestId), guest);
+        if (guest.reservationId) directGuestMap.set(`reservation:${guest.reservationId}`, guest);
+    }
+
+    reservations = reservations.map((reservation) => {
+        const guest =
+            (reservation.guestId && directGuestMap.get(String(reservation.guestId))) ||
+            directGuestMap.get(`reservation:${reservation.id}`);
+
+        if (!guest) return reservation;
+
+        return {
+            ...reservation,
+            guestId: reservation.guestId || guest.guestId || '',
+            profileId: reservation.profileId || guest.profileId || '',
+            guestName: reservation.guestName && reservation.guestName !== 'Unknown Guest'
+                ? reservation.guestName
+                : guest.name,
+            guestEmail: reservation.guestEmail || guest.email || '',
+            guestPhone: reservation.guestPhone || guest.phone || '',
+        };
+    });
+
+    const finalPropertyIds = uniqueStrings([
+        ...properties.map((property) => property.id),
+        ...reservations.map((reservation) => reservation.propertyId),
+    ]);
+
+    const orderedBases = uniqueStrings([
+        fetched.apiBase,
+        resources.preferredApiBase,
+        ...apiBases,
+    ]);
+
+    const [housekeepingResult, dashboardResult] = await Promise.all([
+        fetchHousekeeping(apiKey, orderedBases, finalPropertyIds),
+        fetchDashboardSnapshot(apiKey, orderedBases, finalPropertyIds),
+    ]);
+
+    const rooms = decorateRooms(resources.rooms, reservations, housekeepingResult.items);
+    const guests = mergeGuests(resources.guests, reservations);
+    const dashboard =
+        dashboardResult.items.length > 0
+            ? dashboardResult.totals
+            : fallbackDashboard(reservations, rooms);
 
     await ensureTables();
     await db.query(
         `UPDATE integration_credentials
          SET properties_json = ?, last_sync_at = NOW()
          WHERE provider = ? AND environment = ?`,
-        [JSON.stringify(inferredProperties), PROVIDER, ENVIRONMENT]
+        [JSON.stringify(properties), PROVIDER, ENVIRONMENT]
+    );
+
+    const allAttempts = [
+        ...resources.attempts,
+        ...fetched.attempts,
+        ...housekeepingResult.attempts,
+        ...dashboardResult.attempts,
+    ];
+
+    const missingScopes = uniqueStrings(
+        allAttempts
+            .filter((attempt) => attempt?.error?.status === 401)
+            .map((attempt) => {
+                const path = attempt.path || attempt.endpoint || '';
+                if (path.includes('Reservations')) return 'read:reservation';
+                if (path.includes('Guest')) return 'read:guest';
+                if (path.includes('Rooms')) return 'read:room';
+                if (path.includes('Housekeeping')) return 'read:housekeeping';
+                if (path.includes('Dashboard')) return 'read:dashboard';
+                if (path.includes('Hotels')) return 'read:hotel';
+                return null;
+            })
     );
 
     return {
         environment: ENVIRONMENT,
-        properties: inferredProperties,
+        properties,
         reservations,
+        guests,
+        rooms,
+        housekeeping: housekeepingResult.items,
+        dashboard,
         count: reservations.length,
         cloudbedsApiBase: fetched.apiBase,
-        connectedPropertyIds: uniqueStrings(inferredProperties.map((property) => property.id)),
+        cloudbedsReservationEndpoint: fetched.endpoint,
+        connectedPropertyIds: finalPropertyIds,
+        diagnostics: {
+            apiBases,
+            chosenApiBase: fetched.apiBase,
+            reservationEndpoint: fetched.endpoint,
+            reservationQuery: fetched.attempts.find(
+                (attempt) =>
+                    attempt.ok &&
+                    attempt.apiBase === fetched.apiBase &&
+                    attempt.endpoint === fetched.endpoint &&
+                    (attempt.count || 0) > 0
+            )?.query || 'all',
+            reservationAttempts: fetched.attempts,
+            resourceAttempts: resources.attempts,
+            missingScopes,
+            counts: {
+                reservations: reservations.length,
+                guests: guests.length,
+                rooms: rooms.length,
+                housekeeping: housekeepingResult.items.length,
+            },
+        },
+    };
+}
+
+async function listReservations() {
+    const snapshot = await listPmsSnapshot();
+    return {
+        environment: snapshot.environment,
+        properties: snapshot.properties,
+        reservations: snapshot.reservations,
+        count: snapshot.count,
+        cloudbedsApiBase: snapshot.cloudbedsApiBase,
+        cloudbedsReservationEndpoint: snapshot.cloudbedsReservationEndpoint,
+        connectedPropertyIds: snapshot.connectedPropertyIds,
+        diagnostics: snapshot.diagnostics,
     };
 }
 
