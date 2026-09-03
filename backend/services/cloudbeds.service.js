@@ -402,11 +402,12 @@ async function createAuthorizationState() {
         [PROVIDER, ENVIRONMENT]
     );
 
+    const expiresAt = new Date(Date.now() + AUTH_STATE_TTL_MINUTES * 60 * 1000);
     await db.query(
         `INSERT INTO integration_auth_states
             (state_hash, provider, environment, created_at, expires_at)
-         VALUES (?, ?, ?, NOW(), DATE_ADD(NOW(), INTERVAL ? MINUTE))`,
-        [stateHash, PROVIDER, ENVIRONMENT, AUTH_STATE_TTL_MINUTES]
+         VALUES (?, ?, ?, NOW(), ?)`,
+        [stateHash, PROVIDER, ENVIRONMENT, expiresAt]
     );
 
     return state;
@@ -435,6 +436,23 @@ async function consumeAuthorizationState(state) {
     );
 
     if (!rows[0]) {
+        // Marketplace Flow A reaches our callback without first visiting our
+        // /connect route. Cloudbeds supplies its own random state in that flow.
+        // Accept it only when we have no outstanding app-initiated auth request.
+        const pendingRows = await db.query(
+            `SELECT COUNT(*) AS pending
+             FROM integration_auth_states
+             WHERE provider = ?
+               AND environment = ?
+               AND used_at IS NULL
+               AND expires_at >= NOW()`,
+            [PROVIDER, ENVIRONMENT]
+        );
+
+        if (Number(pendingRows[0]?.pending || 0) === 0) {
+            return { externalMarketplaceFlow: true };
+        }
+
         const error = new Error('Cloudbeds authorization state is invalid or expired. Start the connection again.');
         error.code = 'CLOUDBEDS_STATE_INVALID';
         error.status = 400;
@@ -447,6 +465,8 @@ async function consumeAuthorizationState(state) {
          WHERE state_hash = ?`,
         [stateHash]
     );
+
+    return { externalMarketplaceFlow: false };
 }
 
 async function getApiKey() {
@@ -754,8 +774,13 @@ async function getConnectionStatus() {
 }
 
 function isScopeError(error) {
-    return error?.status === 401 &&
-        String(error?.message || '').toLowerCase().includes('scope required');
+    const status = Number(error?.status || 0);
+    const message = String(error?.message || '').toLowerCase();
+    return [401, 403].includes(status) && (
+        message.includes('scope') ||
+        message.includes('permission') ||
+        message.includes('not granted')
+    );
 }
 
 function reservationQuery(endpoint, propertyId, pageNumber, includeDetails, extra = {}) {
@@ -1932,7 +1957,7 @@ async function listPmsSnapshot() {
 
     const missingScopes = uniqueStrings(
         allAttempts
-            .filter((attempt) => attempt?.error?.status === 401)
+            .filter((attempt) => [401, 403].includes(Number(attempt?.error?.status)))
             .map((attempt) => {
                 const path = attempt.path || attempt.endpoint || '';
                 if (path.includes('Reservations')) return 'read:reservation';
