@@ -179,7 +179,13 @@ const AppShell = () => {
               <span className={`h-2 w-2 rounded-full ${
                 cloudbeds.error ? 'bg-rose-500' : cloudbeds.status?.connected ? 'bg-emerald-500' : 'bg-amber-500'
               }`} />
-              {cloudbeds.error ? 'Sync issue' : cloudbeds.status?.connected ? 'Cloudbeds connected' : 'Not connected'}
+              {cloudbeds.error
+                ? 'Sync issue'
+                : cloudbeds.status?.connected && cloudbeds.status?.dataStatus === 'empty'
+                  ? 'Connected · no data'
+                  : cloudbeds.status?.connected
+                    ? 'Cloudbeds connected'
+                    : 'Not connected'}
             </div>
 
             <button

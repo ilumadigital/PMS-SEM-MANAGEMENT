@@ -112,6 +112,18 @@ const reservations = async (req, res) => {
     }
 };
 
+const snapshot = async (req, res) => {
+    try {
+        const result = await cloudbedsService.listPmsSnapshot();
+        return res.status(200).json({ success: true, ...result });
+    } catch (error) {
+        if (error.code === 'CLOUDBEDS_NOT_CONNECTED') {
+            return sendError(res, error, 409);
+        }
+        return sendError(res, error, 502);
+    }
+};
+
 const updateReservationOperations = async (req, res) => {
     try {
         const result = await cloudbedsService.saveReservationOperations(
@@ -133,6 +145,7 @@ module.exports = {
     connect,
     callback,
     status,
+    snapshot,
     reservations,
     updateReservationOperations,
 };

@@ -3,7 +3,7 @@ import { CloudbedsDataContext } from '../context/CloudbedsDataContext';
 import { EmptyState, MetricCard, PageHeader, Panel, TableShell, Td, Th, initials } from '../components/PmsUi';
 
 const CustomersPage = () => {
-  const { customers, loading, status, error, refresh, connect } = useContext(CloudbedsDataContext);
+  const { customers, diagnostics, loading, status, error, refresh, connect } = useContext(CloudbedsDataContext);
   const [search, setSearch] = useState('');
 
   const filtered = useMemo(() => {
@@ -37,6 +37,11 @@ const CustomersPage = () => {
       {error && (
         <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
           {error}
+        </div>
+      )}
+      {(diagnostics?.missingScopes || []).includes('read:guest') && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Cloudbeds has not granted <strong>Guest READ</strong>. Guest profiles are being reconstructed from reservation data where possible.
         </div>
       )}
 

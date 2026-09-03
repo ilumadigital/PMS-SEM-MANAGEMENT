@@ -20,6 +20,10 @@ const DashboardPage = () => {
     reservations,
     properties,
     rooms,
+    customers,
+    housekeeping,
+    dashboard,
+    diagnostics,
     status,
     loading,
     error,
@@ -80,9 +84,25 @@ const DashboardPage = () => {
     ['occupied', 'checkout_today'].includes(room.occupancyStatus)
   ).length;
 
-  const occupancy = scopedRooms.length
+  const derivedOccupancy = scopedRooms.length
     ? Math.round((occupiedRooms / scopedRooms.length) * 100)
     : 0;
+
+  const useCloudbedsDashboard = propertyFilter === 'all' && dashboard;
+  const displayArrivals = useCloudbedsDashboard ? Number(dashboard.arrivals || 0) : todayArrivals.length;
+  const displayDepartures = useCloudbedsDashboard ? Number(dashboard.departures || 0) : todayDepartures.length;
+  const displayInHouse = useCloudbedsDashboard ? Number(dashboard.inHouse || 0) : inHouse.length;
+  const occupancy = useCloudbedsDashboard
+    ? Number(dashboard.percentageOccupied || derivedOccupancy || 0)
+    : derivedOccupancy;
+
+  const accessCounts = diagnostics?.counts || {
+    reservations: reservations.length,
+    guests: customers.length,
+    rooms: rooms.length,
+    housekeeping: housekeeping.length,
+  };
+  const missingScopes = diagnostics?.missingScopes || [];
 
   return (
     <div className="space-y-6">
@@ -125,9 +145,9 @@ const DashboardPage = () => {
       )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        <MetricCard label="Arrivals today" value={loading ? '…' : todayArrivals.length} helper={`${upcoming.length} arriving in next 7 days`} tone="blue" />
-        <MetricCard label="Departures today" value={loading ? '…' : todayDepartures.length} helper="Scheduled departures" />
-        <MetricCard label="In house" value={loading ? '…' : inHouse.length} helper="Currently staying" tone="green" />
+        <MetricCard label="Arrivals today" value={loading ? '…' : displayArrivals} helper={`${upcoming.length} arriving in next 7 days`} tone="blue" />
+        <MetricCard label="Departures today" value={loading ? '…' : displayDepartures} helper="Scheduled departures" />
+        <MetricCard label="In house" value={loading ? '…' : displayInHouse} helper="Currently staying" tone="green" />
         <MetricCard label="Occupancy" value={loading ? '…' : `${occupancy}%`} helper={`${occupiedRooms}/${scopedRooms.length} tracked rooms`} />
         <MetricCard label="Missing info" value={loading ? '…' : missingInfo.length} helper="Arrival/departure details" tone={missingInfo.length ? 'amber' : 'green'} />
       </div>
@@ -174,9 +194,9 @@ const DashboardPage = () => {
         <div className="space-y-5">
           <Panel title="Front desk snapshot" description="Today's movement">
             <div className="divide-y divide-slate-100">
-              <SnapshotRow label="Arrivals" value={todayArrivals.length} />
-              <SnapshotRow label="Departures" value={todayDepartures.length} />
-              <SnapshotRow label="In-house guests" value={inHouse.length} />
+              <SnapshotRow label="Arrivals" value={displayArrivals} />
+              <SnapshotRow label="Departures" value={displayDepartures} />
+              <SnapshotRow label="In-house guests" value={displayInHouse} />
               <SnapshotRow label="Reservations needing info" value={missingInfo.length} warning={missingInfo.length > 0} />
             </div>
           </Panel>
@@ -185,7 +205,17 @@ const DashboardPage = () => {
             <div className="space-y-4 p-5">
               <div className="flex items-center justify-between">
                 <span className="text-sm text-slate-600">Status</span>
-                <StatusBadge status={error ? 'error' : status?.connected ? 'healthy' : 'not connected'} />
+                <StatusBadge
+                  status={
+                    error
+                      ? 'error'
+                      : status?.connected && status?.dataStatus === 'empty'
+                        ? 'review'
+                        : status?.connected
+                          ? 'healthy'
+                          : 'not connected'
+                  }
+                />
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-slate-600">Reservations loaded</span>
@@ -207,6 +237,32 @@ const DashboardPage = () => {
                   {(status?.connectedPropertyIds || []).join(', ') || 'Not detected yet'}
                 </span>
               </div>
+              <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-50 p-3 text-xs">
+                <div>
+                  <div className="text-slate-500">Guests</div>
+                  <div className="mt-1 font-bold text-slate-900">{accessCounts.guests || 0}</div>
+                </div>
+                <div>
+                  <div className="text-slate-500">Rooms</div>
+                  <div className="mt-1 font-bold text-slate-900">{accessCounts.rooms || 0}</div>
+                </div>
+                <div>
+                  <div className="text-slate-500">Housekeeping</div>
+                  <div className="mt-1 font-bold text-slate-900">{accessCounts.housekeeping || 0}</div>
+                </div>
+                <div>
+                  <div className="text-slate-500">Reservation API</div>
+                  <div className="mt-1 truncate font-bold text-slate-900" title={status?.cloudbedsReservationEndpoint || diagnostics?.reservationEndpoint || ''}>
+                    {status?.cloudbedsReservationEndpoint || diagnostics?.reservationEndpoint || '—'}
+                  </div>
+                </div>
+              </div>
+              {missingScopes.length > 0 && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+                  <div className="text-xs font-semibold text-amber-800">Cloudbeds permissions still missing</div>
+                  <div className="mt-1 text-xs text-amber-700">{missingScopes.join(', ')}</div>
+                </div>
+              )}
               <div className="flex items-center justify-between">
                 <span className="text-sm text-slate-600">Last sync</span>
                 <span className="text-right text-xs font-medium text-slate-700">{status?.lastSyncAt || 'Live request'}</span>

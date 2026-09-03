@@ -130,28 +130,65 @@ async function cloudbedsRequest(path, { apiKey, method = 'GET', query, form, bas
         const error = new Error(message);
         error.status = response.status;
         error.cloudbedsPayload = payload;
+        error.requestId = response.headers.get('x-request-id') || null;
         throw error;
     }
 
     return payload;
 }
 
-async function resolvePropertyApiBase(apiKey) {
-    try {
-        const metadata = await cloudbedsRequest('/oauth/metadata', { apiKey, baseUrl: API_BASE });
-        const resolved = metadata?.data?.api?.url;
+function normalizeApiBase(value) {
+    return String(value || '').trim().replace(/\/$/, '');
+}
 
-        if (resolved) {
-            return String(resolved).replace(/\/$/, '');
+async function resolvePropertyApiBases(apiKey) {
+    const candidates = [];
+    const add = (value) => {
+        const normalized = normalizeApiBase(value);
+        if (normalized && !candidates.includes(normalized)) candidates.push(normalized);
+    };
+
+    // Cloudbeds documents /oauth/metadata as the source of truth for property
+    // localization. Try both documented hosts because API-key examples use the
+    // hotels host while the endpoint reference uses api.cloudbeds.com.
+    for (const metadataBase of [API_BASE, AUTH_BASE]) {
+        try {
+            const metadata = await cloudbedsRequest('/oauth/metadata', {
+                apiKey,
+                baseUrl: metadataBase,
+            });
+            add(metadata?.data?.api?.url);
+        } catch (error) {
+            console.warn(
+                '[CLOUDBEDS] metadata lookup failed on',
+                metadataBase,
+                error.message,
+                error.requestId || ''
+            );
         }
-    } catch (error) {
-        // Metadata is the authoritative way to resolve a property's API localization.
-        // If it is temporarily unavailable, fall back to the configured global base
-        // rather than making the whole PMS unavailable.
-        console.warn('[CLOUDBEDS] Could not resolve property API localization:', error.message);
     }
 
-    return API_BASE;
+    add(API_BASE);
+    add(AUTH_BASE);
+    return candidates;
+}
+
+function safeError(error) {
+    return {
+        status: error?.status || null,
+        code: error?.code || null,
+        message: error?.message || 'Unknown Cloudbeds error',
+        requestId: error?.requestId || null,
+    };
+}
+
+async function tryCloudbeds(path, options) {
+    try {
+        const payload = await cloudbedsRequest(path, options);
+        return { ok: true, payload, error: null };
+    } catch (error) {
+        return { ok: false, payload: null, error: safeError(error), rawError: error };
+    }
 }
 
 function propertiesFromTokenResources(resources) {
@@ -424,76 +461,464 @@ function isScopeError(error) {
         String(error?.message || '').toLowerCase().includes('scope required');
 }
 
-async function fetchReservationsPage(apiKey, apiBase, propertyId, pageNumber, includeDetails = true) {
-    const baseQuery = {
+function reservationQuery(endpoint, propertyId, pageNumber, includeDetails, extra = {}) {
+    const query = {
         propertyID: propertyId,
         sortByRecent: true,
         pageSize: PAGE_SIZE,
         pageNumber,
+        ...extra,
     };
 
-    if (!includeDetails) {
-        return cloudbedsRequest('/getReservations', {
-            apiKey,
-            baseUrl: apiBase,
-            query: baseQuery,
-        });
+    if (includeDetails) {
+        query.includeGuestsDetails = true;
+        query.includeGuestRequirements = true;
+        query.includeCustomFields = true;
+        if (endpoint === '/getReservations') {
+            query.includeAllRooms = true;
+        }
+    }
+
+    return query;
+}
+
+async function fetchReservationPage(apiKey, apiBase, endpoint, propertyId, pageNumber, includeDetails, extra = {}) {
+    const supportsDetailFlags = endpoint === '/getReservations';
+    const effectiveDetails = includeDetails && supportsDetailFlags;
+    const options = {
+        apiKey,
+        baseUrl: apiBase,
+        query: reservationQuery(endpoint, propertyId, pageNumber, effectiveDetails, extra),
+    };
+
+    if (!effectiveDetails) {
+        return cloudbedsRequest(endpoint, options);
     }
 
     try {
-        return await cloudbedsRequest('/getReservations', {
-            apiKey,
-            baseUrl: apiBase,
-            query: {
-                ...baseQuery,
-                includeGuestsDetails: true,
-                includeGuestRequirements: true,
-                includeCustomFields: true,
-                includeAllRooms: true,
-            },
-        });
+        return await cloudbedsRequest(endpoint, options);
     } catch (error) {
+        // Guest/custom-field detail flags may require additional scopes. If the
+        // property only granted read:reservation we still load the bookings.
         if (isScopeError(error)) {
-            return cloudbedsRequest('/getReservations', {
+            return cloudbedsRequest(endpoint, {
                 apiKey,
                 baseUrl: apiBase,
-                query: baseQuery,
+                query: reservationQuery(endpoint, propertyId, pageNumber, false, extra),
             });
         }
         throw error;
     }
 }
 
-async function fetchAllReservations(apiKey, propertyIds = []) {
-    const all = [];
-    const apiBase = await resolvePropertyApiBase(apiKey);
-    const targets = propertyIds.length ? propertyIds : [null];
+async function probeReservations(apiKey, apiBases, propertyIds = []) {
+    const attempts = [];
+    const targetValues = [];
 
-    for (const propertyId of targets) {
-        for (let pageNumber = 1; pageNumber <= 20; pageNumber += 1) {
-            let payload;
-            try {
-                payload = await fetchReservationsPage(apiKey, apiBase, propertyId, pageNumber, true);
-            } catch (error) {
-                if (isScopeError(error)) {
-                    const scopeError = new Error(
-                        'Cloudbeds API key was delivered, but the property did not grant Reservations read permission. Enable Reservations READ in the Cloudbeds Partner App, disconnect the app from the sandbox property, and reconnect it.'
-                    );
-                    scopeError.code = 'CLOUDBEDS_RESERVATION_SCOPE_REQUIRED';
-                    scopeError.status = 403;
-                    throw scopeError;
+    if (propertyIds.length) {
+        targetValues.push(propertyIds.join(','));
+        for (const propertyId of propertyIds) targetValues.push(propertyId);
+    }
+    targetValues.push(null);
+
+    const uniqueTargets = [...new Set(targetValues.map((value) => value || '__none__'))]
+        .map((value) => value === '__none__' ? null : value);
+
+    let firstSuccessfulEmpty = null;
+    let firstError = null;
+
+    const today = new Date();
+    const rangeStart = new Date(today);
+    rangeStart.setFullYear(rangeStart.getFullYear() - 2);
+    const rangeEnd = new Date(today);
+    rangeEnd.setFullYear(rangeEnd.getFullYear() + 3);
+    const toDate = (date) => date.toISOString().slice(0, 10);
+
+    for (const apiBase of apiBases) {
+        for (const endpoint of ['/getReservations', '/getReservationsWithRateDetails']) {
+            for (const propertyId of uniqueTargets) {
+                const queryVariants = endpoint === '/getReservations'
+                    ? [
+                        { label: 'all', extra: {} },
+                        {
+                            label: 'checkin-window',
+                            extra: {
+                                checkInFrom: toDate(rangeStart),
+                                checkInTo: toDate(rangeEnd),
+                            },
+                        },
+                    ]
+                    : [{ label: 'all', extra: {} }];
+
+                for (const variant of queryVariants) {
+                    const result = await tryCloudbeds(endpoint, {
+                        apiKey,
+                        baseUrl: apiBase,
+                        query: reservationQuery(endpoint, propertyId, 1, false, variant.extra),
+                    });
+
+                    if (!result.ok) {
+                        attempts.push({
+                            apiBase,
+                            endpoint,
+                            propertyId,
+                            query: variant.label,
+                            ok: false,
+                            error: result.error,
+                        });
+                        firstError = firstError || result.rawError;
+                        continue;
+                    }
+
+                    const items = extractDataArray(result.payload);
+                    attempts.push({
+                        apiBase,
+                        endpoint,
+                        propertyId,
+                        query: variant.label,
+                        ok: true,
+                        count: items.length,
+                        total: result.payload?.total ?? result.payload?.count ?? null,
+                    });
+
+                    const target = {
+                        apiBase,
+                        endpoint,
+                        propertyId,
+                        extra: variant.extra,
+                        queryLabel: variant.label,
+                    };
+
+                    if (items.length > 0) {
+                        return { target, attempts };
+                    }
+
+                    firstSuccessfulEmpty = firstSuccessfulEmpty || target;
                 }
-                throw error;
             }
-
-            const pageItems = extractDataArray(payload);
-            all.push(...pageItems);
-
-            if (pageItems.length < PAGE_SIZE) break;
         }
     }
 
-    return { reservations: all, apiBase };
+    if (firstSuccessfulEmpty) {
+        return { target: firstSuccessfulEmpty, attempts };
+    }
+
+    if (firstError) throw firstError;
+
+    const error = new Error('Cloudbeds did not return a usable reservations response.');
+    error.code = 'CLOUDBEDS_RESERVATIONS_UNAVAILABLE';
+    error.status = 502;
+    throw error;
+}
+
+async function fetchAllReservations(apiKey, apiBases, propertyIds = []) {
+    const probe = await probeReservations(apiKey, apiBases, propertyIds);
+    const { apiBase, endpoint, propertyId, extra = {} } = probe.target;
+    const all = [];
+
+    for (let pageNumber = 1; pageNumber <= 20; pageNumber += 1) {
+        let payload;
+        try {
+            payload = await fetchReservationPage(
+                apiKey,
+                apiBase,
+                endpoint,
+                propertyId,
+                pageNumber,
+                true,
+                extra
+            );
+        } catch (error) {
+            if (isScopeError(error)) {
+                const scopeError = new Error(
+                    'Cloudbeds is connected, but Reservations READ was not granted by the property.'
+                );
+                scopeError.code = 'CLOUDBEDS_RESERVATION_SCOPE_REQUIRED';
+                scopeError.status = 403;
+                throw scopeError;
+            }
+            throw error;
+        }
+
+        const pageItems = extractDataArray(payload);
+        all.push(...pageItems);
+
+        if (pageItems.length < PAGE_SIZE) break;
+    }
+
+    return {
+        reservations: all,
+        apiBase,
+        endpoint,
+        propertyId,
+        attempts: probe.attempts,
+    };
+}
+
+function extractGuestRecords(payload) {
+    if (Array.isArray(payload?.data)) return payload.data;
+    if (payload?.data && typeof payload.data === 'object') {
+        return Object.entries(payload.data).map(([guestId, guest]) => ({
+            ...(guest || {}),
+            guestID: guest?.guestID || guestId,
+        }));
+    }
+    return [];
+}
+
+function extractRoomRecords(payload) {
+    const groups = extractDataArray(payload);
+    return groups.flatMap((group) =>
+        asArray(group?.rooms).map((room) => ({
+            ...room,
+            propertyID: room?.propertyID || group?.propertyID || '',
+        }))
+    );
+}
+
+function normalizeGuestRecord(guest) {
+    const firstName = String(pick(guest, ['guestFirstName', 'firstName'], '') || '');
+    const lastName = String(pick(guest, ['guestLastName', 'lastName'], '') || '');
+    const name = String(
+        pick(guest, ['guestName', 'name'], `${firstName} ${lastName}`.trim() || 'Unknown Guest')
+    );
+    const phone = String(
+        pick(guest, ['guestCellPhone', 'guestPhone', 'cellPhone', 'phone'], '') || ''
+    );
+
+    const startDate = String(pick(guest, ['startDate', 'checkInDate'], '') || '').slice(0, 10);
+    const endDate = String(pick(guest, ['endDate', 'checkOutDate'], '') || '').slice(0, 10);
+
+    return {
+        id: String(pick(guest, ['guestID', 'guestId', 'profileID', 'profileId'], name)),
+        guestId: String(pick(guest, ['guestID', 'guestId'], '')),
+        profileId: String(pick(guest, ['profileID', 'profileId'], '')),
+        propertyId: String(pick(guest, ['propertyID', 'propertyId'], '') || ''),
+        reservationId: String(pick(guest, ['reservationID', 'reservationId'], '') || ''),
+        roomId: String(pick(guest, ['roomID', 'roomId'], '') || ''),
+        roomNumber: String(pick(guest, ['roomName', 'roomNumber'], '') || ''),
+        roomTypeId: String(pick(guest, ['roomTypeID', 'roomTypeId'], '') || ''),
+        status: normalizeStatus(pick(guest, ['status', 'reservationStatus'], 'confirmed')),
+        rawStatus: String(pick(guest, ['status', 'reservationStatus'], '') || ''),
+        arrivalDate: startDate,
+        departureDate: endDate,
+        name,
+        firstName,
+        lastName,
+        email: String(pick(guest, ['guestEmail', 'email'], '') || ''),
+        phone,
+        country: String(pick(guest, ['guestCountry', 'country'], '') || ''),
+        city: String(pick(guest, ['guestCity', 'city'], '') || ''),
+        isMainGuest: Boolean(pick(guest, ['isMainGuest'], false)),
+        isAnonymized: Boolean(pick(guest, ['isAnonymized'], false)),
+        bookings: 0,
+        source: 'cloudbeds',
+    };
+}
+
+function normalizeRoomRecord(room) {
+    return {
+        id: String(pick(room, ['roomID', 'roomId', 'id'], '')),
+        propertyId: String(pick(room, ['propertyID', 'propertyId'], '')),
+        roomNumber: String(pick(room, ['roomName', 'roomNumber', 'name'], '') || ''),
+        roomTypeId: String(pick(room, ['roomTypeID', 'roomTypeId'], '') || ''),
+        roomType: String(pick(room, ['roomTypeName', 'roomTypeNameShort', 'roomType'], '') || ''),
+        maxGuests: Number(pick(room, ['maxGuests'], 0) || 0),
+        isPrivate: pick(room, ['isPrivate'], null),
+        isVirtual: Boolean(pick(room, ['isVirtual'], false)),
+        blocked: Boolean(pick(room, ['roomBlocked'], false)),
+        housekeepingStatus: 'not_tracked',
+        occupancyStatus: 'unknown',
+        nextArrivalBookingId: null,
+        currentGuest: null,
+        lastUpdatedAt: 'Cloudbeds',
+    };
+}
+
+function normalizeHousekeepingRecord(item) {
+    const condition = String(pick(item, ['roomCondition'], '') || '');
+    const occupied = Boolean(pick(item, ['roomOccupied'], false));
+    const blocked = Boolean(pick(item, ['roomBlocked'], false));
+
+    let status = condition || 'unknown';
+    if (blocked) status = 'out_of_order';
+    else if (pick(item, ['doNotDisturb'], false)) status = 'do_not_disturb';
+    else if (pick(item, ['refusedService'], false)) status = 'refused_service';
+    else if (pick(item, ['vacantPickup'], false)) status = 'vacant_pickup';
+    else if (condition) status = occupied ? `occupied_${condition}` : `vacant_${condition}`;
+
+    return {
+        roomId: String(pick(item, ['roomID', 'roomId'], '')),
+        roomNumber: String(pick(item, ['roomName', 'roomNumber'], '') || ''),
+        roomTypeId: String(pick(item, ['roomTypeID', 'roomTypeId'], '') || ''),
+        roomType: String(pick(item, ['roomTypeName'], '') || ''),
+        roomCondition: condition,
+        roomOccupied: occupied,
+        roomBlocked: blocked,
+        frontdeskStatus: String(pick(item, ['frontdeskStatus'], '') || ''),
+        housekeeperId: String(pick(item, ['housekeeperID'], '') || ''),
+        housekeeper: String(pick(item, ['housekeeper'], '') || ''),
+        doNotDisturb: Boolean(pick(item, ['doNotDisturb'], false)),
+        refusedService: Boolean(pick(item, ['refusedService'], false)),
+        vacantPickup: Boolean(pick(item, ['vacantPickup'], false)),
+        comments: String(pick(item, ['roomComments'], '') || ''),
+        status,
+        date: String(pick(item, ['date'], '') || ''),
+    };
+}
+
+async function fetchResourceFromBases(apiKey, apiBases, path, query, extractor) {
+    const attempts = [];
+    let firstEmpty = null;
+
+    for (const apiBase of apiBases) {
+        const result = await tryCloudbeds(path, { apiKey, baseUrl: apiBase, query });
+
+        if (!result.ok) {
+            attempts.push({ apiBase, path, ok: false, error: result.error });
+            continue;
+        }
+
+        const items = extractor(result.payload);
+        attempts.push({
+            apiBase,
+            path,
+            ok: true,
+            count: Array.isArray(items) ? items.length : 0,
+        });
+
+        const response = { apiBase, payload: result.payload, items, attempts };
+        if (Array.isArray(items) && items.length) return response;
+        firstEmpty = firstEmpty || response;
+    }
+
+    return firstEmpty || { apiBase: apiBases[0] || API_BASE, payload: null, items: [], attempts };
+}
+
+async function discoverCloudbedsResources(apiKey, apiBases, propertyIds = []) {
+    const propertyCsv = propertyIds.length ? propertyIds.join(',') : null;
+
+    const [hotelsResult, roomsResult, guestsResult] = await Promise.all([
+        fetchResourceFromBases(
+            apiKey,
+            apiBases,
+            '/getHotels',
+            { propertyIDs: propertyCsv, pageSize: 100, pageNumber: 1 },
+            (payload) => extractDataArray(payload).map(propertyFromHotel).filter((property) => property.id)
+        ),
+        fetchResourceFromBases(
+            apiKey,
+            apiBases,
+            '/getRooms',
+            { propertyIDs: propertyCsv, pageSize: 100, pageNumber: 1 },
+            (payload) => extractRoomRecords(payload).map(normalizeRoomRecord).filter((room) => room.id)
+        ),
+        fetchResourceFromBases(
+            apiKey,
+            apiBases,
+            '/getGuestList',
+            { propertyIDs: propertyCsv, pageSize: 100, pageNumber: 1 },
+            (payload) => extractGuestRecords(payload).map(normalizeGuestRecord)
+        ),
+    ]);
+
+    const propertyMap = new Map();
+
+    for (const property of hotelsResult.items) {
+        propertyMap.set(String(property.id), property);
+    }
+    for (const room of roomsResult.items) {
+        if (room.propertyId && !propertyMap.has(room.propertyId)) {
+            propertyMap.set(room.propertyId, {
+                id: room.propertyId,
+                name: 'Cloudbeds Sandbox Property',
+                city: '',
+            });
+        }
+    }
+
+    return {
+        properties: Array.from(propertyMap.values()),
+        rooms: roomsResult.items,
+        guests: guestsResult.items,
+        preferredApiBase:
+            roomsResult.items.length ? roomsResult.apiBase :
+            guestsResult.items.length ? guestsResult.apiBase :
+            hotelsResult.items.length ? hotelsResult.apiBase :
+            apiBases[0] || API_BASE,
+        attempts: [
+            ...hotelsResult.attempts,
+            ...roomsResult.attempts,
+            ...guestsResult.attempts,
+        ],
+    };
+}
+
+async function fetchHousekeeping(apiKey, apiBases, propertyIds = []) {
+    const targets = propertyIds.length ? propertyIds : [null];
+    const all = [];
+    const attempts = [];
+
+    for (const propertyId of targets) {
+        const result = await fetchResourceFromBases(
+            apiKey,
+            apiBases,
+            '/getHousekeepingStatus',
+            { propertyID: propertyId, pageSize: 5000, pageNumber: 1 },
+            (payload) => extractDataArray(payload).map(normalizeHousekeepingRecord)
+        );
+        all.push(...result.items);
+        attempts.push(...result.attempts);
+    }
+
+    return { items: all, attempts };
+}
+
+async function fetchDashboardSnapshot(apiKey, apiBases, propertyIds = []) {
+    const targets = propertyIds.length ? propertyIds : [null];
+    const items = [];
+    const attempts = [];
+
+    for (const propertyId of targets) {
+        let resolved = null;
+
+        for (const apiBase of apiBases) {
+            const result = await tryCloudbeds('/getDashboard', {
+                apiKey,
+                baseUrl: apiBase,
+                query: { propertyID: propertyId },
+            });
+
+            if (!result.ok) {
+                attempts.push({ apiBase, path: '/getDashboard', propertyId, ok: false, error: result.error });
+                continue;
+            }
+
+            attempts.push({ apiBase, path: '/getDashboard', propertyId, ok: true });
+            resolved = {
+                propertyId: propertyId || '',
+                ...(result.payload?.data || {}),
+            };
+            break;
+        }
+
+        if (resolved) items.push(resolved);
+    }
+
+    const totals = items.reduce(
+        (acc, item) => ({
+            roomsOccupied: acc.roomsOccupied + Number(item.roomsOccupied || 0),
+            percentageOccupied: items.length === 1
+                ? Number(item.percentageOccupied || 0)
+                : acc.percentageOccupied,
+            arrivals: acc.arrivals + Number(item.arrivals || 0),
+            departures: acc.departures + Number(item.departures || 0),
+            inHouse: acc.inHouse + Number(item.inHouse || 0),
+        }),
+        { roomsOccupied: 0, percentageOccupied: 0, arrivals: 0, departures: 0, inHouse: 0 }
+    );
+
+    return { items, totals, attempts };
 }
 
 function normalizeStatus(status) {
@@ -505,12 +930,25 @@ function normalizeStatus(status) {
 }
 
 function normalizeReservation(reservation) {
+    const guestListEntries =
+        reservation.guestList && !Array.isArray(reservation.guestList) && typeof reservation.guestList === 'object'
+            ? Object.values(reservation.guestList)
+            : asArray(reservation.guestList);
+
     const guestCollection = [
         ...asArray(reservation.guests),
-        ...asArray(reservation.guestList),
+        ...guestListEntries,
         ...asArray(reservation.guestDetails),
     ];
-    const primaryGuest = guestCollection[0] || reservation.guest || reservation.primaryGuest || {};
+
+    const mainGuestId = String(pick(reservation, ['guestID', 'guestId'], '') || '');
+    const primaryGuest =
+        guestCollection.find((guest) => String(pick(guest, ['guestID', 'guestId'], '')) === mainGuestId) ||
+        guestCollection.find((guest) => pick(guest, ['isMainGuest'], false)) ||
+        guestCollection[0] ||
+        reservation.guest ||
+        reservation.primaryGuest ||
+        {};
 
     const firstName = pick(reservation, [
         'guestFirstName',
@@ -604,6 +1042,20 @@ function normalizeReservation(reservation) {
         ),
         syncStatus: 'synced',
         syncEvent: 'live_cloudbeds',
+        guestId: String(
+            pick(
+                reservation,
+                ['guestID', 'guestId'],
+                pick(primaryGuest, ['guestID', 'guestId'], '')
+            ) || ''
+        ),
+        profileId: String(
+            pick(
+                reservation,
+                ['profileID', 'profileId'],
+                pick(primaryGuest, ['profileID', 'profileId'], '')
+            ) || ''
+        ),
         guestName,
         guestEmail,
         guestPhone,
@@ -628,7 +1080,15 @@ function normalizeReservation(reservation) {
         shuttleRequestId: null,
         missingFields,
         bookingDate: pick(reservation, ['dateCreated', 'bookingDate', 'createdAt'], ''),
-        nights: pick(reservation, ['nights'], null),
+        nights: (() => {
+            const explicit = pick(reservation, ['nights'], null);
+            if (explicit !== null && explicit !== undefined && explicit !== '') return Number(explicit);
+            const start = pick(reservation, ['startDate', 'checkInDate'], '');
+            const end = pick(reservation, ['endDate', 'checkOutDate'], '');
+            if (!start || !end) return null;
+            const diff = Math.round((new Date(`${end}T12:00:00Z`) - new Date(`${start}T12:00:00Z`)) / 86400000);
+            return Number.isFinite(diff) && diff >= 0 ? diff : null;
+        })(),
         totalPrice: pick(reservation, ['total', 'grandTotal', 'reservationTotal'], null),
         cloudbedsSource: pick(reservation, ['sourceName', 'source', 'bookingSource'], ''),
         property: {
@@ -697,37 +1157,365 @@ function applyOperations(reservation, operations) {
     return merged;
 }
 
-async function listReservations() {
-    const apiKey = await getApiKey();
-    const stored = await getStoredIntegration();
+function reservationsFromGuestRecords(guests, rooms, properties) {
+    const reservationMap = new Map();
+    const roomMap = new Map(rooms.map((room) => [String(room.id), room]));
+    const propertyMap = new Map(properties.map((property) => [String(property.id), property]));
 
-    let storedProperties = [];
-    try {
-        storedProperties = stored?.properties_json ? JSON.parse(stored.properties_json) || [] : [];
-    } catch {
-        storedProperties = [];
+    for (const guest of guests) {
+        if (!guest.reservationId) continue;
+
+        const reservationId = String(guest.reservationId);
+        const existing = reservationMap.get(reservationId);
+        const preferGuest = !existing || guest.isMainGuest;
+
+        if (!existing) {
+            const room = guest.roomId ? roomMap.get(String(guest.roomId)) : null;
+            const resolvedPropertyId = guest.propertyId || room?.propertyId || '';
+            const property = resolvedPropertyId ? propertyMap.get(String(resolvedPropertyId)) : null;
+            const start = guest.arrivalDate || '';
+            const end = guest.departureDate || '';
+            let nights = null;
+            if (start && end) {
+                const diff = Math.round(
+                    (new Date(`${end}T12:00:00Z`) - new Date(`${start}T12:00:00Z`)) / 86400000
+                );
+                if (Number.isFinite(diff) && diff >= 0) nights = diff;
+            }
+
+            reservationMap.set(reservationId, {
+                id: reservationId,
+                source: 'cloudbeds',
+                sourceReference: reservationId,
+                syncStatus: 'synced',
+                syncEvent: 'cloudbeds_guest_list_fallback',
+                fallbackSource: 'getGuestList',
+                guestId: guest.guestId || '',
+                profileId: guest.profileId || '',
+                guestName: guest.name || 'Unknown Guest',
+                guestEmail: guest.email || '',
+                guestPhone: guest.phone || '',
+                propertyId: resolvedPropertyId,
+                roomId: guest.roomId || `cloudbeds-unassigned-${reservationId}`,
+                roomIds: guest.roomId ? [guest.roomId] : [],
+                roomNumber: guest.roomNumber || room?.roomNumber || 'Unassigned',
+                roomNumbers: guest.roomNumber || room?.roomNumber ? [guest.roomNumber || room?.roomNumber] : [],
+                roomType: room?.roomType || '',
+                roomTypes: room?.roomType ? [room.roomType] : [],
+                arrivalDate: start,
+                arrivalTime: null,
+                departureDate: end,
+                departureTime: null,
+                status: guest.status || 'confirmed',
+                rawStatus: guest.rawStatus || '',
+                checkinStatus: guest.status === 'in_house' ? 'completed' : 'pending',
+                checkoutStatus: guest.status === 'checked_out' ? 'completed' : null,
+                guestNotes: '',
+                specialRequests: [],
+                shuttleRequested: false,
+                shuttleRequestId: null,
+                missingFields: ['arrivalTime', 'departureTime'],
+                bookingDate: '',
+                nights,
+                totalPrice: null,
+                cloudbedsSource: 'Cloudbeds',
+                property: {
+                    id: resolvedPropertyId,
+                    name: property?.name || 'Cloudbeds Sandbox Property',
+                    city: property?.city || '',
+                },
+                room: {
+                    id: guest.roomId || '',
+                    roomNumber: guest.roomNumber || room?.roomNumber || 'Unassigned',
+                    roomType: room?.roomType || '',
+                    housekeepingStatus: room?.housekeepingStatus || 'not tracked',
+                },
+            });
+        } else if (preferGuest) {
+            reservationMap.set(reservationId, {
+                ...existing,
+                guestId: guest.guestId || existing.guestId,
+                profileId: guest.profileId || existing.profileId,
+                guestName: guest.name || existing.guestName,
+                guestEmail: guest.email || existing.guestEmail,
+                guestPhone: guest.phone || existing.guestPhone,
+                roomId: guest.roomId || existing.roomId,
+                roomIds: guest.roomId ? [guest.roomId] : existing.roomIds,
+                roomNumber: guest.roomNumber || existing.roomNumber,
+                roomNumbers: guest.roomNumber ? [guest.roomNumber] : existing.roomNumbers,
+                arrivalDate: guest.arrivalDate || existing.arrivalDate,
+                departureDate: guest.departureDate || existing.departureDate,
+                status: guest.status || existing.status,
+                rawStatus: guest.rawStatus || existing.rawStatus,
+            });
+        }
     }
 
-    const storedPropertyIds = uniqueStrings(storedProperties.map((property) => property.id));
-    const fetched = await fetchAllReservations(apiKey, storedPropertyIds);
-    let rawReservations = fetched.reservations;
+    return Array.from(reservationMap.values());
+}
 
-    const inferredProperties = filterAllowedProperties(
-        Array.from(
-            new Map(
-                [
-                    ...storedProperties,
-                    ...rawReservations.map((reservation) => ({
-                        id: String(pick(reservation, ['propertyID', 'propertyId'], '')),
-                        name: String(pick(reservation, ['propertyName'], 'Cloudbeds Sandbox Property')),
-                        city: String(pick(reservation, ['propertyCity'], '') || ''),
-                    })),
-                ]
-                    .filter((property) => property?.id)
-                    .map((property) => [String(property.id), property])
-            ).values()
-        )
+function parseStoredProperties(record) {
+    if (!record?.properties_json) return [];
+    try {
+        const parsed = JSON.parse(record.properties_json);
+        return Array.isArray(parsed) ? parsed : [];
+    } catch {
+        return [];
+    }
+}
+
+function mergeProperties(...lists) {
+    const map = new Map();
+
+    for (const property of lists.flat()) {
+        if (!property?.id) continue;
+        const id = String(property.id);
+        const current = map.get(id) || {};
+        map.set(id, {
+            id,
+            name:
+                property.name && property.name !== 'Cloudbeds Sandbox Property'
+                    ? property.name
+                    : current.name || property.name || 'Cloudbeds Sandbox Property',
+            city: property.city || current.city || '',
+        });
+    }
+
+    return filterAllowedProperties(Array.from(map.values()));
+}
+
+function deriveGuestsFromReservations(reservations) {
+    const map = new Map();
+
+    for (const reservation of reservations) {
+        const key =
+            reservation.guestId ||
+            reservation.guestEmail ||
+            reservation.guestPhone ||
+            reservation.guestName ||
+            reservation.id;
+
+        if (!map.has(String(key))) {
+            map.set(String(key), {
+                id: String(key),
+                guestId: reservation.guestId || '',
+                profileId: reservation.profileId || '',
+                name: reservation.guestName || 'Unknown Guest',
+                email: reservation.guestEmail || '',
+                phone: reservation.guestPhone || '',
+                country: '',
+                city: '',
+                reservationId: reservation.id,
+                isMainGuest: true,
+                isAnonymized: false,
+                bookings: 0,
+                source: 'cloudbeds',
+            });
+        }
+
+        map.get(String(key)).bookings += 1;
+    }
+
+    return Array.from(map.values());
+}
+
+function mergeGuests(directGuests, reservations) {
+    const derived = deriveGuestsFromReservations(reservations);
+    const map = new Map();
+
+    const keysFor = (guest) =>
+        uniqueStrings([
+            guest.guestId,
+            guest.profileId,
+            guest.email && String(guest.email).toLowerCase(),
+            guest.phone,
+            guest.name,
+            guest.id,
+        ]);
+
+    for (const guest of directGuests) {
+        const key = keysFor(guest)[0] || guest.id;
+        map.set(String(key), { ...guest, bookings: 0 });
+    }
+
+    const findExistingKey = (guest) => {
+        const candidateKeys = keysFor(guest);
+        for (const [existingKey, existing] of map.entries()) {
+            const existingKeys = new Set(keysFor(existing));
+            if (candidateKeys.some((key) => existingKeys.has(key))) return existingKey;
+        }
+        return null;
+    };
+
+    for (const guest of derived) {
+        const existingKey = findExistingKey(guest);
+        if (existingKey) {
+            const current = map.get(existingKey);
+            map.set(existingKey, {
+                ...current,
+                name: current.name || guest.name,
+                email: current.email || guest.email,
+                phone: current.phone || guest.phone,
+                bookings: Number(current.bookings || 0) + Number(guest.bookings || 0),
+            });
+        } else {
+            map.set(String(guest.id), guest);
+        }
+    }
+
+    return Array.from(map.values()).sort((a, b) =>
+        String(a.name || '').localeCompare(String(b.name || ''))
     );
+}
+
+function deriveRoomsFromReservations(reservations) {
+    const map = new Map();
+
+    for (const reservation of reservations) {
+        const ids = reservation.roomIds?.length
+            ? reservation.roomIds
+            : [reservation.roomId || `unassigned-${reservation.id}`];
+        const numbers = reservation.roomNumbers?.length
+            ? reservation.roomNumbers
+            : [reservation.roomNumber || 'Unassigned'];
+        const types = reservation.roomTypes?.length
+            ? reservation.roomTypes
+            : [reservation.roomType || ''];
+
+        const count = Math.max(ids.length, numbers.length, 1);
+        for (let index = 0; index < count; index += 1) {
+            const id = String(ids[index] || `${ids[0]}-${index + 1}`);
+            if (id.startsWith('cloudbeds-unassigned-') || id.startsWith('unassigned-')) continue;
+
+            if (!map.has(id)) {
+                map.set(id, {
+                    id,
+                    propertyId: reservation.propertyId || '',
+                    roomNumber: String(numbers[index] || numbers[0] || ''),
+                    roomTypeId: '',
+                    roomType: String(types[index] || types[0] || ''),
+                    maxGuests: 0,
+                    isPrivate: null,
+                    isVirtual: false,
+                    blocked: false,
+                    housekeepingStatus: 'not_tracked',
+                    occupancyStatus: 'unknown',
+                    nextArrivalBookingId: null,
+                    currentGuest: null,
+                    lastUpdatedAt: 'Cloudbeds',
+                });
+            }
+        }
+    }
+
+    return Array.from(map.values());
+}
+
+function decorateRooms(officialRooms, reservations, housekeeping) {
+    const today = new Date().toISOString().slice(0, 10);
+    const baseRooms = officialRooms.length ? officialRooms : deriveRoomsFromReservations(reservations);
+    const housekeepingMap = new Map(
+        housekeeping.filter((item) => item.roomId).map((item) => [String(item.roomId), item])
+    );
+
+    return baseRooms.map((room) => {
+        const roomReservations = reservations
+            .filter((reservation) => {
+                const ids = reservation.roomIds?.length
+                    ? reservation.roomIds.map(String)
+                    : [String(reservation.roomId || '')];
+                return ids.includes(String(room.id));
+            })
+            .filter((reservation) => reservation.status !== 'cancelled')
+            .sort((a, b) => String(a.arrivalDate || '').localeCompare(String(b.arrivalDate || '')));
+
+        const inHouse = roomReservations.find(
+            (reservation) =>
+                reservation.status === 'in_house' ||
+                (
+                    reservation.arrivalDate &&
+                    reservation.departureDate &&
+                    reservation.arrivalDate <= today &&
+                    reservation.departureDate > today
+                )
+        );
+
+        const checkoutToday = roomReservations.find(
+            (reservation) => reservation.departureDate === today
+        );
+        const arrivingToday = roomReservations.find(
+            (reservation) => reservation.arrivalDate === today
+        );
+        const nextArrival = roomReservations.find(
+            (reservation) => reservation.arrivalDate >= today
+        );
+        const hk = housekeepingMap.get(String(room.id));
+
+        return {
+            ...room,
+            occupancyStatus: checkoutToday
+                ? 'checkout_today'
+                : inHouse
+                    ? 'occupied'
+                    : arrivingToday
+                        ? 'arriving_today'
+                        : 'vacant',
+            currentGuest: inHouse?.guestName || null,
+            nextArrivalBookingId: nextArrival?.id || null,
+            housekeepingStatus: hk?.status || room.housekeepingStatus || 'not_tracked',
+            housekeeping: hk || null,
+        };
+    });
+}
+
+function fallbackDashboard(reservations, rooms) {
+    const today = new Date().toISOString().slice(0, 10);
+    const arrivals = reservations.filter(
+        (reservation) => reservation.arrivalDate === today && reservation.status !== 'cancelled'
+    ).length;
+    const departures = reservations.filter(
+        (reservation) => reservation.departureDate === today && reservation.status !== 'cancelled'
+    ).length;
+    const inHouse = reservations.filter(
+        (reservation) =>
+            reservation.status === 'in_house' ||
+            (
+                reservation.arrivalDate &&
+                reservation.departureDate &&
+                reservation.arrivalDate <= today &&
+                reservation.departureDate > today &&
+                reservation.status !== 'cancelled'
+            )
+    ).length;
+    const occupiedRooms = rooms.filter((room) =>
+        ['occupied', 'checkout_today'].includes(room.occupancyStatus)
+    ).length;
+
+    return {
+        roomsOccupied: occupiedRooms,
+        percentageOccupied: rooms.length ? Math.round((occupiedRooms / rooms.length) * 100) : 0,
+        arrivals,
+        departures,
+        inHouse,
+    };
+}
+
+async function listPmsSnapshot() {
+    const apiKey = await getApiKey();
+    const stored = await getStoredIntegration();
+    const storedProperties = parseStoredProperties(stored);
+    const apiBases = await resolvePropertyApiBases(apiKey);
+
+    const initialPropertyIds = uniqueStrings(storedProperties.map((property) => property.id));
+    const resources = await discoverCloudbedsResources(apiKey, apiBases, initialPropertyIds);
+    const discoveredPropertyIds = uniqueStrings([
+        ...initialPropertyIds,
+        ...resources.properties.map((property) => property.id),
+        ...resources.rooms.map((room) => room.propertyId),
+    ]);
+
+    const fetched = await fetchAllReservations(apiKey, apiBases, discoveredPropertyIds);
+    let rawReservations = fetched.reservations;
 
     const allowed = allowedPropertyIds();
     if (allowed.length) {
@@ -737,41 +1525,190 @@ async function listReservations() {
         );
     }
 
-    const propertyMap = new Map(inferredProperties.map((property) => [property.id, property]));
-    const normalized = rawReservations
+    const reservationProperties = rawReservations
+        .map((reservation) => ({
+            id: String(pick(reservation, ['propertyID', 'propertyId'], '')),
+            name: String(pick(reservation, ['propertyName'], 'Cloudbeds Sandbox Property')),
+            city: String(pick(reservation, ['propertyCity'], '') || ''),
+        }))
+        .filter((property) => property.id);
+
+    const properties = mergeProperties(
+        storedProperties,
+        resources.properties,
+        reservationProperties
+    );
+
+    const propertyMap = new Map(properties.map((property) => [property.id, property]));
+    let normalized = rawReservations
         .map((reservation) => {
             const propertyId = String(pick(reservation, ['propertyID', 'propertyId'], ''));
             return normalizeReservation({
                 ...reservation,
                 __property: propertyMap.get(propertyId) || {
                     id: propertyId,
-                    name: String(pick(reservation, ['propertyName'], 'Cloudbeds Sandbox Property')),
-                    city: String(pick(reservation, ['propertyCity'], '') || ''),
+                    name: 'Cloudbeds Sandbox Property',
+                    city: '',
                 },
             });
         })
         .filter((reservation) => reservation.id);
 
+    // If getReservations is empty but Guest READ is available, Cloudbeds'
+    // getGuestList still provides reservationID, status, dates and room assignment.
+    // Use it as a real Cloudbeds fallback instead of showing an empty PMS.
+    if (!normalized.length && resources.guests.length) {
+        normalized = reservationsFromGuestRecords(
+            resources.guests,
+            resources.rooms,
+            properties
+        );
+    }
+
     const operations = await getOperationsMap(normalized.map((reservation) => reservation.id));
-    const reservations = normalized.map((reservation) =>
+    let reservations = normalized.map((reservation) =>
         applyOperations(reservation, operations.get(reservation.id))
     );
+
+    const directGuestMap = new Map();
+    for (const guest of resources.guests) {
+        if (guest.guestId) directGuestMap.set(String(guest.guestId), guest);
+        if (guest.reservationId) directGuestMap.set(`reservation:${guest.reservationId}`, guest);
+    }
+
+    reservations = reservations.map((reservation) => {
+        const guest =
+            (reservation.guestId && directGuestMap.get(String(reservation.guestId))) ||
+            directGuestMap.get(`reservation:${reservation.id}`);
+
+        if (!guest) return reservation;
+
+        return {
+            ...reservation,
+            guestId: reservation.guestId || guest.guestId || '',
+            profileId: reservation.profileId || guest.profileId || '',
+            guestName: reservation.guestName && reservation.guestName !== 'Unknown Guest'
+                ? reservation.guestName
+                : guest.name,
+            guestEmail: reservation.guestEmail || guest.email || '',
+            guestPhone: reservation.guestPhone || guest.phone || '',
+        };
+    });
+
+    const finalPropertyIds = uniqueStrings([
+        ...properties.map((property) => property.id),
+        ...reservations.map((reservation) => reservation.propertyId),
+    ]);
+
+    const orderedBases = uniqueStrings([
+        fetched.apiBase,
+        resources.preferredApiBase,
+        ...apiBases,
+    ]);
+
+    const [housekeepingResult, dashboardResult] = await Promise.all([
+        fetchHousekeeping(apiKey, orderedBases, finalPropertyIds),
+        fetchDashboardSnapshot(apiKey, orderedBases, finalPropertyIds),
+    ]);
+
+    const rooms = decorateRooms(resources.rooms, reservations, housekeepingResult.items);
+    const guests = mergeGuests(resources.guests, reservations);
+    const dashboard =
+        dashboardResult.items.length > 0
+            ? dashboardResult.totals
+            : fallbackDashboard(reservations, rooms);
 
     await ensureTables();
     await db.query(
         `UPDATE integration_credentials
          SET properties_json = ?, last_sync_at = NOW()
          WHERE provider = ? AND environment = ?`,
-        [JSON.stringify(inferredProperties), PROVIDER, ENVIRONMENT]
+        [JSON.stringify(properties), PROVIDER, ENVIRONMENT]
     );
+
+    const allAttempts = [
+        ...resources.attempts,
+        ...fetched.attempts,
+        ...housekeepingResult.attempts,
+        ...dashboardResult.attempts,
+    ];
+
+    const missingScopes = uniqueStrings(
+        allAttempts
+            .filter((attempt) => attempt?.error?.status === 401)
+            .map((attempt) => {
+                const path = attempt.path || attempt.endpoint || '';
+                if (path.includes('Reservations')) return 'read:reservation';
+                if (path.includes('Guest')) return 'read:guest';
+                if (path.includes('Rooms')) return 'read:room';
+                if (path.includes('Housekeeping')) return 'read:housekeeping';
+                if (path.includes('Dashboard')) return 'read:dashboard';
+                if (path.includes('Hotels')) return 'read:hotel';
+                return null;
+            })
+    );
+
+    const hasPmsData =
+        reservations.length > 0 ||
+        guests.length > 0 ||
+        rooms.length > 0 ||
+        housekeepingResult.items.length > 0;
+
+    const requiresReauthorization =
+        !hasPmsData &&
+        finalPropertyIds.length === 0 &&
+        initialPropertyIds.length === 0;
 
     return {
         environment: ENVIRONMENT,
-        properties: inferredProperties,
+        properties,
         reservations,
+        guests,
+        rooms,
+        housekeeping: housekeepingResult.items,
+        dashboard,
         count: reservations.length,
+        dataStatus: hasPmsData ? 'ready' : 'empty',
+        requiresReauthorization,
         cloudbedsApiBase: fetched.apiBase,
-        connectedPropertyIds: uniqueStrings(inferredProperties.map((property) => property.id)),
+        cloudbedsReservationEndpoint: fetched.endpoint,
+        connectedPropertyIds: finalPropertyIds,
+        diagnostics: {
+            apiBases,
+            storedPropertyIds: initialPropertyIds,
+            chosenApiBase: fetched.apiBase,
+            reservationEndpoint: fetched.endpoint,
+            reservationQuery: fetched.attempts.find(
+                (attempt) =>
+                    attempt.ok &&
+                    attempt.apiBase === fetched.apiBase &&
+                    attempt.endpoint === fetched.endpoint &&
+                    (attempt.count || 0) > 0
+            )?.query || 'all',
+            reservationAttempts: fetched.attempts,
+            resourceAttempts: resources.attempts,
+            missingScopes,
+            counts: {
+                reservations: reservations.length,
+                guests: guests.length,
+                rooms: rooms.length,
+                housekeeping: housekeepingResult.items.length,
+            },
+        },
+    };
+}
+
+async function listReservations() {
+    const snapshot = await listPmsSnapshot();
+    return {
+        environment: snapshot.environment,
+        properties: snapshot.properties,
+        reservations: snapshot.reservations,
+        count: snapshot.count,
+        cloudbedsApiBase: snapshot.cloudbedsApiBase,
+        cloudbedsReservationEndpoint: snapshot.cloudbedsReservationEndpoint,
+        connectedPropertyIds: snapshot.connectedPropertyIds,
+        diagnostics: snapshot.diagnostics,
     };
 }
 
@@ -864,6 +1801,7 @@ module.exports = {
     buildAuthorizationUrl,
     exchangeAuthorizationCode,
     getConnectionStatus,
+    listPmsSnapshot,
     listReservations,
     saveReservationOperations,
 };
