@@ -1,12 +1,11 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import api from '../services/api';
 
 import {
   cleaningTasks,
   properties,
-  reservations as initialReservations,
   rooms,
   shuttleRequests,
-  syncEvents,
 } from '../data/semDemoData';
 
 import {
@@ -15,18 +14,71 @@ import {
 } from '../utils/semOperationsMetrics';
 
 const BookingsPage = () => {
-  const [reservations, setReservations] = useState(initialReservations);
+  const [reservations, setReservations] = useState([]);
+  const [integrationStatus, setIntegrationStatus] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [sourceFilter, setSourceFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [selectedReservationId, setSelectedReservationId] = useState(
-    initialReservations[0]?.id || null
-  );
+  const [selectedReservationId, setSelectedReservationId] = useState(null);
+
+  const loadCloudbedsReservations = useCallback(async () => {
+    try {
+      setLoadError('');
+      const statusResponse = await api.get('/integrations/cloudbeds/status');
+      setIntegrationStatus(statusResponse.data);
+
+      if (!statusResponse.data.connected) {
+        setReservations([]);
+        setSelectedReservationId(null);
+        setLoadError('Cloudbeds sandbox is not connected yet.');
+        return;
+      }
+
+      const reservationsResponse = await api.get('/integrations/cloudbeds/reservations');
+      const liveReservations = reservationsResponse.data.reservations || [];
+      setReservations(liveReservations);
+      setIntegrationStatus((current) => ({
+        ...(current || {}),
+        ...reservationsResponse.data,
+        connected: true,
+      }));
+      setSelectedReservationId((current) =>
+        current && liveReservations.some((item) => item.id === current)
+          ? current
+          : liveReservations[0]?.id || null
+      );
+    } catch (error) {
+      setLoadError(
+        error.response?.data?.message ||
+        error.message ||
+        'Could not load Cloudbeds sandbox reservations.'
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadCloudbedsReservations();
+    const interval = window.setInterval(loadCloudbedsReservations, 60000);
+    return () => window.clearInterval(interval);
+  }, [loadCloudbedsReservations]);
+
+  const syncEvents = [
+    {
+      id: 'cloudbeds-sandbox',
+      provider: 'Cloudbeds Sandbox',
+      lastSyncAt: integrationStatus?.lastSyncAt || 'live request',
+      status: integrationStatus?.connected && !loadError ? 'healthy' : 'review',
+    },
+  ];
 
   const enrichedReservations = useMemo(() => {
     return reservations.map((reservation) => {
-      const property = getPropertyById(properties, reservation.propertyId);
-      const room = getRoomById(rooms, reservation.roomId);
+      const property = reservation.property || getPropertyById(properties, reservation.propertyId);
+      const room = reservation.room || getRoomById(rooms, reservation.roomId);
       const cleaningTask = cleaningTasks.find(
         (task) => task.reservationId === reservation.id
       );
@@ -48,10 +100,10 @@ const BookingsPage = () => {
     const term = searchTerm.toLowerCase();
 
     const matchesSearch =
-      reservation.guestName.toLowerCase().includes(term) ||
-      reservation.id.toLowerCase().includes(term) ||
-      reservation.sourceReference.toLowerCase().includes(term) ||
-      reservation.roomNumber.toLowerCase().includes(term) ||
+      String(reservation.guestName || '').toLowerCase().includes(term) ||
+      String(reservation.id || '').toLowerCase().includes(term) ||
+      String(reservation.sourceReference || '').toLowerCase().includes(term) ||
+      String(reservation.roomNumber || '').toLowerCase().includes(term) ||
       reservation.property?.name.toLowerCase().includes(term);
 
     const matchesSource =
@@ -103,7 +155,7 @@ const BookingsPage = () => {
           <div>
             <div className="inline-flex rounded-full border border-[#C9A46A]/25 bg-[#C9A46A]/8 px-4 py-2">
               <span className="text-[10px] uppercase tracking-[0.32em] text-[#C9A46A] font-bold">
-                Unified Reservations · Cloudbeds / Hosthub
+                Live Reservations · Cloudbeds Sandbox
               </span>
             </div>
 
@@ -113,14 +165,14 @@ const BookingsPage = () => {
             </h1>
 
             <p className="mt-7 max-w-2xl text-base leading-8 text-[#BEB7AD]">
-              Unified reservation control for synced bookings, modifications,
+              Live reservation control using only the connected Cloudbeds test account. Changes in the test account are refreshed every 60 seconds;
               missing guest details, linked room readiness, shuttle requests and reception notes.
             </p>
 
             <div className="mt-10 grid grid-cols-1 md:grid-cols-4 gap-3">
               <HeroMetric label="Total records" value={summary.total} />
               <HeroMetric label="Cloudbeds" value={summary.cloudbeds} />
-              <HeroMetric label="Hosthub" value={summary.hosthub} />
+              <HeroMetric label="Sandbox properties" value={integrationStatus?.properties?.length || 0} />
               <HeroMetric label="Missing info" value={summary.missingInfo} tone="warning" />
             </div>
           </div>
@@ -160,9 +212,9 @@ const BookingsPage = () => {
 
       <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
         <OperationsCard
-          label="Modified reservations"
-          value={summary.modified}
-          description="Changes received from external PMS/channel systems"
+          label="Cloudbeds live"
+          value={summary.cloudbeds}
+          description="Current records returned by the Cloudbeds sandbox"
         />
         <OperationsCard
           label="Shuttle linked"
@@ -194,8 +246,8 @@ const BookingsPage = () => {
                 </h2>
               </div>
 
-              <button className="rounded-full border border-[#C9A46A]/25 px-4 py-2 text-[10px] uppercase tracking-[0.22em] text-[#C9A46A] hover:bg-[#C9A46A]/10 transition-all">
-                Manual booking
+              <button onClick={loadCloudbedsReservations} className="rounded-full border border-[#C9A46A]/25 px-4 py-2 text-[10px] uppercase tracking-[0.22em] text-[#C9A46A] hover:bg-[#C9A46A]/10 transition-all">
+                Refresh Cloudbeds
               </button>
             </div>
 
@@ -214,8 +266,7 @@ const BookingsPage = () => {
               >
                 <option value="all">All sources</option>
                 <option value="cloudbeds">Cloudbeds</option>
-                <option value="hosthub">Hosthub</option>
-                <option value="manual">Manual</option>
+                
               </select>
 
               <select
@@ -246,10 +297,10 @@ const BookingsPage = () => {
             {filteredReservations.length === 0 && (
               <div className="p-10 text-center">
                 <div className="text-base font-semibold text-white">
-                  No reservations found.
+                  {loading ? 'Loading Cloudbeds sandbox…' : 'No reservations found.'}
                 </div>
                 <p className="mt-3 text-sm text-[#8F8A82]">
-                  Change filters or search term to view more records.
+                  {loadError || 'Change filters or search term to view more records.'}
                 </p>
               </div>
             )}
