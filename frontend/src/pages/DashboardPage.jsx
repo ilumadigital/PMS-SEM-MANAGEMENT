@@ -196,6 +196,18 @@ const DashboardPage = () => {
                 <span className="text-sm font-semibold text-slate-950">{properties.length}</span>
               </div>
               <div className="flex items-center justify-between">
+                <span className="text-sm text-slate-600">API target</span>
+                <span className="max-w-[220px] truncate text-right text-xs font-medium text-slate-700" title={status?.cloudbedsApiBase || ''}>
+                  {status?.cloudbedsApiBase ? status.cloudbedsApiBase.replace(/^https?:\/\//, '') : 'Resolving…'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-slate-600">Property IDs</span>
+                <span className="max-w-[220px] truncate text-right text-xs font-medium text-slate-700">
+                  {(status?.connectedPropertyIds || []).join(', ') || 'Not detected yet'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
                 <span className="text-sm text-slate-600">Last sync</span>
                 <span className="text-right text-xs font-medium text-slate-700">{status?.lastSyncAt || 'Live request'}</span>
               </div>
