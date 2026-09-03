@@ -15,7 +15,7 @@ import {
 } from '../components/PmsUi';
 
 const ReceptionDash = () => {
-  const { reservations, loading, refresh } = useContext(CloudbedsDataContext);
+  const { reservations, dashboard, diagnostics, loading, refresh, connect, status } = useContext(CloudbedsDataContext);
   const [view, setView] = useState('today');
   const [search, setSearch] = useState('');
 
@@ -69,6 +69,11 @@ const ReceptionDash = () => {
     (reservation) => (reservation.missingFields || []).length > 0 && reservation.status !== 'cancelled'
   ).length;
 
+  const displayArrivals = dashboard ? Number(dashboard.arrivals || arrivals.length) : arrivals.length;
+  const displayDepartures = dashboard ? Number(dashboard.departures || departures.length) : departures.length;
+  const displayInHouse = dashboard ? Number(dashboard.inHouse || inHouse.length) : inHouse.length;
+  const reservationScopeMissing = (diagnostics?.missingScopes || []).includes('read:reservation');
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -81,10 +86,30 @@ const ReceptionDash = () => {
         }
       />
 
+      {status?.connected && reservations.length === 0 && !loading && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div className="text-sm font-semibold text-amber-900">
+                Front Desk metrics are connected, but reservation details are unavailable
+              </div>
+              <div className="mt-1 text-xs text-amber-800">
+                {reservationScopeMissing
+                  ? 'Cloudbeds did not grant Reservations READ.'
+                  : 'The current property binding returned no reservation rows.'}
+              </div>
+            </div>
+            <button onClick={connect} className="rounded-lg bg-amber-700 px-3 py-2 text-xs font-semibold text-white">
+              Re-authorize property
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-        <MetricCard label="Arrivals" value={loading ? '…' : arrivals.length} helper="Today" tone="blue" />
-        <MetricCard label="Departures" value={loading ? '…' : departures.length} helper="Today" />
-        <MetricCard label="In house" value={loading ? '…' : inHouse.length} helper="Active stays" tone="green" />
+        <MetricCard label="Arrivals" value={loading ? '…' : displayArrivals} helper="Today" tone="blue" />
+        <MetricCard label="Departures" value={loading ? '…' : displayDepartures} helper="Today" />
+        <MetricCard label="In house" value={loading ? '…' : displayInHouse} helper="Active stays" tone="green" />
         <MetricCard label="Missing info" value={loading ? '…' : missingInfo} helper="Needs reception review" tone={missingInfo ? 'amber' : 'green'} />
       </div>
 
