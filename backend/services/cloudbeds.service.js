@@ -2077,10 +2077,14 @@ async function saveReservationOperations(reservationId, payload) {
     };
 }
 
-function buildAuthorizationUrl() {
+function buildAuthorizationUrl(state) {
     const clientId = process.env.CLOUDBEDS_CLIENT_ID;
-    if (!clientId) {
-        const error = new Error('CLOUDBEDS_CLIENT_ID is not configured on the server.');
+    const clientSecret = process.env.CLOUDBEDS_CLIENT_SECRET;
+
+    if (!clientId || !clientSecret || !REDIRECT_URI) {
+        const error = new Error(
+            'Cloudbeds automatic delivery requires CLOUDBEDS_CLIENT_ID, CLOUDBEDS_CLIENT_SECRET and CLOUDBEDS_REDIRECT_URI.'
+        );
         error.code = 'CLOUDBEDS_CONFIG_MISSING';
         throw error;
     }
@@ -2089,15 +2093,50 @@ function buildAuthorizationUrl() {
     url.searchParams.set('client_id', clientId);
     url.searchParams.set('redirect_uri', REDIRECT_URI);
     url.searchParams.set('response_type', 'code');
+    if (state) url.searchParams.set('state', state);
     return url.toString();
+}
+
+async function createAuthorizationUrl() {
+    const state = await createAuthorizationState();
+    return {
+        url: buildAuthorizationUrl(state),
+        state,
+    };
+}
+
+function getRuntimeConfiguration() {
+    const automaticDelivery = Boolean(
+        process.env.CLOUDBEDS_CLIENT_ID &&
+        process.env.CLOUDBEDS_CLIENT_SECRET &&
+        REDIRECT_URI
+    );
+
+    return {
+        environment: ENVIRONMENT,
+        sandboxOnly: String(process.env.CLOUDBEDS_SANDBOX_ONLY || 'true') !== 'false',
+        automaticDelivery,
+        apiBase: API_BASE,
+        authBase: AUTH_BASE,
+        redirectUri: REDIRECT_URI,
+        frontendUrl: FRONTEND_URL,
+        envApiKeyEnabled: String(process.env.CLOUDBEDS_ALLOW_ENV_API_KEY || 'false') === 'true',
+        propertyAllowlistEnabled: allowedPropertyIds().length > 0,
+        requiredScopes: REQUIRED_SCOPES,
+    };
 }
 
 module.exports = {
     ENVIRONMENT,
     REDIRECT_URI,
+    FRONTEND_URL,
+    REQUIRED_SCOPES,
     buildAuthorizationUrl,
+    createAuthorizationUrl,
+    disconnectIntegration,
     exchangeAuthorizationCode,
     getConnectionStatus,
+    getRuntimeConfiguration,
     listPmsSnapshot,
     listReservations,
     saveReservationOperations,
