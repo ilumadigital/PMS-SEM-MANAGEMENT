@@ -83,6 +83,20 @@ const callback = async (req, res) => {
         const tokenResourceLabel = tokenResources
             .map((resource) => `${resource.type}:${resource.id}`)
             .join(', ');
+        const failedCalls = result.diagnostics?.failedCalls || [];
+        const emptyCalls = result.diagnostics?.successfulEmptyCalls || [];
+        const failedCallLabel = failedCalls
+            .slice(0, 8)
+            .map((attempt) =>
+                `${attempt.path || 'API'} @ ${attempt.apiBase || 'unknown'} -> HTTP ${attempt.status || '?'} ${attempt.message || ''}${attempt.requestId ? ` [${attempt.requestId}]` : ''}`
+            )
+            .join(' | ');
+        const emptyCallLabel = emptyCalls
+            .slice(0, 8)
+            .map((attempt) =>
+                `${attempt.path || 'API'} @ ${attempt.apiBase || 'unknown'} -> 0 records`
+            )
+            .join(' | ');
         const isReady = result.ready === true;
         const noPropertyBinding = !result.propertyResourceCaptured && !(result.properties || []).length;
         const guidance = missingScopes.length
@@ -111,6 +125,8 @@ const callback = async (req, res) => {
                       : `<p style="line-height:1.7;color:#f0d6a5">Cloudbeds issued an API key, but the required PMS resources could not all be verified.</p>
                          <p style="line-height:1.7;color:#c9c4bc">Detected missing permissions: <strong style="color:#fff">${escapeHtml(missingScopes.join(', ') || 'None explicitly reported')}</strong></p>
                          <p style="line-height:1.7;color:#f0d6a5">${escapeHtml(guidance)}</p>
+                         ${failedCallLabel ? `<p style="line-height:1.7;color:#ffb4b4">Failed API calls: <strong style="color:#fff">${escapeHtml(failedCallLabel)}</strong></p>` : ''}
+                         ${!failedCallLabel && emptyCallLabel ? `<p style="line-height:1.7;color:#c9c4bc">Successful but empty API calls: <strong style="color:#fff">${escapeHtml(emptyCallLabel)}</strong></p>` : ''}
                          <p style="line-height:1.7;color:#c9c4bc">Required for the full SEM PMS: <strong style="color:#fff">${escapeHtml((result.requiredScopes || []).join(', '))}</strong></p>`
                   }
                   <a href="${escapeHtml(cloudbedsService.FRONTEND_URL)}" style="display:inline-block;margin-top:18px;padding:14px 18px;border-radius:12px;background:#c9a46a;color:#111;text-decoration:none;font-weight:700">Open SEM PMS</a>

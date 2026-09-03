@@ -18,6 +18,26 @@ const REQUIRED_SCOPES = [
     'read:hotel',
 ];
 
+const DEFAULT_AUTH_SCOPES = [
+    'read:customFields',
+    'read:dashboard',
+    'read:guest',
+    'read:hotel',
+    'read:housekeeping',
+    'read:reservation',
+    'read:resourceReservations',
+    'read:room',
+];
+
+function authorizationScopes() {
+    const configured = String(process.env.CLOUDBEDS_AUTH_SCOPES || '')
+        .split(/[\s,]+/)
+        .map((scope) => scope.trim())
+        .filter(Boolean);
+
+    return configured.length ? uniqueStrings(configured) : DEFAULT_AUTH_SCOPES;
+}
+
 let tablesReady = false;
 
 async function ensureTables() {
@@ -121,6 +141,10 @@ async function cloudbedsRequest(path, { apiKey, method = 'GET', query, form, bas
     const request = { method, headers };
 
     if (apiKey) {
+        // Cloudbeds documents both forms for cbat_ API keys. The OpenAPI PMS
+        // schema declares x-api-key, while the partner automatic-delivery guide
+        // shows Authorization: Bearer. Sending both avoids host/proxy differences.
+        headers['x-api-key'] = apiKey;
         headers.Authorization = `Bearer ${apiKey}`;
     }
 
@@ -135,6 +159,7 @@ async function cloudbedsRequest(path, { apiKey, method = 'GET', query, form, bas
 
     const response = await fetch(url, request);
     const text = await response.text();
+    const contentType = response.headers.get('content-type') || '';
 
     let payload;
     try {
@@ -143,16 +168,26 @@ async function cloudbedsRequest(path, { apiKey, method = 'GET', query, form, bas
         payload = { raw: text };
     }
 
-    if (!response.ok || payload?.success === false) {
+    const nonJsonSuccess =
+        response.ok &&
+        text &&
+        !contentType.toLowerCase().includes('json') &&
+        payload?.raw !== undefined;
+
+    if (!response.ok || payload?.success === false || nonJsonSuccess) {
         const message =
             payload?.message ||
             payload?.error_description ||
             payload?.error ||
-            `Cloudbeds API request failed with HTTP ${response.status}`;
+            (nonJsonSuccess
+                ? `Cloudbeds returned a non-JSON response for ${url.pathname}`
+                : `Cloudbeds API request failed with HTTP ${response.status}`);
         const error = new Error(message);
         error.status = response.status;
         error.cloudbedsPayload = payload;
         error.requestId = response.headers.get('x-request-id') || null;
+        error.requestUrl = url.toString();
+        error.contentType = contentType;
         throw error;
     }
 
@@ -201,6 +236,8 @@ function safeError(error) {
         code: error?.code || null,
         message: error?.message || 'Unknown Cloudbeds error',
         requestId: error?.requestId || null,
+        requestUrl: error?.requestUrl || null,
+        contentType: error?.contentType || null,
     };
 }
 
@@ -690,6 +727,7 @@ async function exchangeAuthorizationCode(code, state) {
             ready: false,
             validationError: safeError(error),
             requiredScopes: REQUIRED_SCOPES,
+            authorizationScopes: authorizationScopes(),
             tokenResources,
             propertyResourceCaptured: properties.length > 0,
         };
@@ -1139,10 +1177,69 @@ async function fetchResourceFromBases(apiKey, apiBases, path, query, extractor) 
     return firstEmpty || { apiBase: apiBases[0] || API_BASE, payload: null, items: [], attempts };
 }
 
+async function fetchPropertyDetails(apiKey, apiBases, propertyIds = []) {
+    const properties = [];
+    const attempts = [];
+
+    for (const propertyId of propertyIds) {
+        let resolved = null;
+
+        for (const apiBase of apiBases) {
+            const result = await tryCloudbeds('/getHotelDetails', {
+                apiKey,
+                baseUrl: apiBase,
+                query: { propertyID: propertyId },
+            });
+
+            if (!result.ok) {
+                attempts.push({
+                    apiBase,
+                    path: '/getHotelDetails',
+                    propertyId,
+                    ok: false,
+                    error: result.error,
+                });
+                continue;
+            }
+
+            const hotel = result.payload?.data;
+            const property =
+                hotel && typeof hotel === 'object' && !Array.isArray(hotel)
+                    ? propertyFromHotel(hotel)
+                    : null;
+
+            attempts.push({
+                apiBase,
+                path: '/getHotelDetails',
+                propertyId,
+                ok: true,
+                count: property?.id ? 1 : 0,
+            });
+
+            if (property?.id) {
+                properties.push(property);
+                resolved = property;
+                break;
+            }
+        }
+
+        if (!resolved) {
+            properties.push({
+                id: String(propertyId),
+                name: 'Cloudbeds Sandbox Property',
+                city: '',
+            });
+        }
+    }
+
+    return { properties, attempts };
+}
+
 async function discoverCloudbedsResources(apiKey, apiBases, propertyIds = []) {
     const propertyCsv = propertyIds.length ? propertyIds.join(',') : null;
 
-    const [hotelsResult, roomsResult, guestsResult] = await Promise.all([
+    const [detailsResult, hotelsResult, roomsResult, guestsResult] = await Promise.all([
+        fetchPropertyDetails(apiKey, apiBases, propertyIds),
         fetchResourceFromBases(
             apiKey,
             apiBases,
@@ -1168,6 +1265,9 @@ async function discoverCloudbedsResources(apiKey, apiBases, propertyIds = []) {
 
     const propertyMap = new Map();
 
+    for (const property of detailsResult.properties) {
+        propertyMap.set(String(property.id), property);
+    }
     for (const property of hotelsResult.items) {
         propertyMap.set(String(property.id), property);
     }
@@ -1191,6 +1291,7 @@ async function discoverCloudbedsResources(apiKey, apiBases, propertyIds = []) {
             hotelsResult.items.length ? hotelsResult.apiBase :
             apiBases[0] || API_BASE,
         attempts: [
+            ...detailsResult.attempts,
             ...hotelsResult.attempts,
             ...roomsResult.attempts,
             ...guestsResult.attempts,
@@ -2002,6 +2103,25 @@ async function listPmsSnapshot() {
             })
     );
 
+    const attemptSummary = allAttempts.map((attempt) => ({
+        path: attempt.path || attempt.endpoint || '',
+        apiBase: attempt.apiBase || '',
+        propertyId: attempt.propertyId || '',
+        query: attempt.query || '',
+        ok: Boolean(attempt.ok),
+        count: Number(attempt.count || 0),
+        total: attempt.total ?? null,
+        status: attempt.error?.status || null,
+        message: attempt.error?.message || null,
+        requestId: attempt.error?.requestId || null,
+        contentType: attempt.error?.contentType || null,
+    }));
+
+    const failedCalls = attemptSummary.filter((attempt) => !attempt.ok);
+    const successfulEmptyCalls = attemptSummary.filter(
+        (attempt) => attempt.ok && Number(attempt.count || 0) === 0
+    );
+
     const hasPmsData =
         reservations.length > 0 ||
         guests.length > 0 ||
@@ -2057,6 +2177,8 @@ async function listPmsSnapshot() {
             reservationAttempts: fetched.attempts,
             resourceAttempts: resources.attempts,
             missingScopes,
+            failedCalls,
+            successfulEmptyCalls,
             counts: {
                 reservations: reservations.length,
                 guests: guests.length,
@@ -2165,6 +2287,7 @@ function buildAuthorizationUrl(state) {
     url.searchParams.set('client_id', clientId);
     url.searchParams.set('redirect_uri', REDIRECT_URI);
     url.searchParams.set('response_type', 'code');
+    url.searchParams.set('scope', authorizationScopes().join(' '));
     if (state) url.searchParams.set('state', state);
     return url.toString();
 }
@@ -2196,6 +2319,7 @@ function getRuntimeConfiguration() {
         propertyAllowlistEnabled: String(process.env.CLOUDBEDS_ENFORCE_PROPERTY_ALLOWLIST || 'false') === 'true',
         propertyAllowlistCount: allowedPropertyIds().length,
         requiredScopes: REQUIRED_SCOPES,
+        authorizationScopes: authorizationScopes(),
     };
 }
 
