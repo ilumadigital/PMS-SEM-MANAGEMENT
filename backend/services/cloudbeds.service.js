@@ -1666,6 +1666,7 @@ module.exports = {
     buildAuthorizationUrl,
     exchangeAuthorizationCode,
     getConnectionStatus,
+    listPmsSnapshot,
     listReservations,
     saveReservationOperations,
 };
