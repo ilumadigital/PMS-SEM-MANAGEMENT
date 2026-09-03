@@ -1,4 +1,16 @@
-import { semToday, semTomorrow } from '../data/semDemoData';
+const toDateKey = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const todayKey = () => toDateKey(new Date());
+const tomorrowKey = () => {
+  const date = new Date();
+  date.setDate(date.getDate() + 1);
+  return toDateKey(date);
+};
 
 export const getPropertyById = (properties, propertyId) => {
   return properties.find((property) => property.id === propertyId);
@@ -9,23 +21,23 @@ export const getRoomById = (rooms, roomId) => {
 };
 
 export const getTodayArrivals = (reservations) => {
-  return reservations.filter((reservation) => reservation.arrivalDate === semToday);
+  return reservations.filter((reservation) => reservation.arrivalDate === todayKey());
 };
 
 export const getTodayDepartures = (reservations) => {
-  return reservations.filter((reservation) => reservation.departureDate === semToday);
+  return reservations.filter((reservation) => reservation.departureDate === todayKey());
 };
 
 export const getTomorrowArrivals = (reservations) => {
-  return reservations.filter((reservation) => reservation.arrivalDate === semTomorrow);
+  return reservations.filter((reservation) => reservation.arrivalDate === tomorrowKey());
 };
 
 export const getTomorrowDepartures = (reservations) => {
-  return reservations.filter((reservation) => reservation.departureDate === semTomorrow);
+  return reservations.filter((reservation) => reservation.departureDate === tomorrowKey());
 };
 
 export const getMissingInfoReservations = (reservations) => {
-  return reservations.filter((reservation) => reservation.missingFields.length > 0);
+  return reservations.filter((reservation) => (reservation.missingFields || []).length > 0);
 };
 
 export const getCleaningSummary = (cleaningTasks) => {
@@ -186,7 +198,7 @@ export const buildSemDashboardMetrics = ({
   communications,
   linenInventory,
 }) => {
-  const totalRooms = properties.reduce((sum, property) => sum + property.totalRooms, 0);
+  const totalRooms = properties.reduce((sum, property) => sum + (property.totalRooms || 0), 0);
   const occupiedRooms = rooms.filter((room) =>
     ['occupied', 'checkout_today'].includes(room.occupancyStatus)
   ).length;
