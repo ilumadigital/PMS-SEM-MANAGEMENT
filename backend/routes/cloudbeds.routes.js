@@ -16,6 +16,13 @@ router.get(
 );
 
 router.get(
+    '/snapshot',
+    protect,
+    restrictTo('admin', 'management', 'reception'),
+    cloudbedsController.snapshot
+);
+
+router.get(
     '/reservations',
     protect,
     restrictTo('admin', 'management', 'reception'),
