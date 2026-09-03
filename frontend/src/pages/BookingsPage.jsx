@@ -104,7 +104,7 @@ const BookingsPage = () => {
       String(reservation.id || '').toLowerCase().includes(term) ||
       String(reservation.sourceReference || '').toLowerCase().includes(term) ||
       String(reservation.roomNumber || '').toLowerCase().includes(term) ||
-      reservation.property?.name.toLowerCase().includes(term);
+      String(reservation.property?.name || '').toLowerCase().includes(term);
 
     const matchesSource =
       sourceFilter === 'all' || reservation.source === sourceFilter;
@@ -131,7 +131,7 @@ const BookingsPage = () => {
     shuttle: enrichedReservations.filter((item) => item.shuttleRequested).length,
   };
 
-  const updateReservationField = (reservationId, field, value) => {
+  const updateReservationField = async (reservationId, field, value) => {
     setReservations((currentReservations) =>
       currentReservations.map((reservation) =>
         reservation.id === reservationId
@@ -143,6 +143,20 @@ const BookingsPage = () => {
           : reservation
       )
     );
+
+    try {
+      await api.put(
+        `/integrations/cloudbeds/reservations/${encodeURIComponent(reservationId)}/operations`,
+        { [field]: value }
+      );
+    } catch (error) {
+      console.error('Could not persist SEM reception field:', error);
+    }
+  };
+
+  const connectCloudbeds = () => {
+    const apiOrigin = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+    window.location.assign(`${apiOrigin}/api/integrations/cloudbeds/connect`);
   };
 
   return (
@@ -246,8 +260,8 @@ const BookingsPage = () => {
                 </h2>
               </div>
 
-              <button onClick={loadCloudbedsReservations} className="rounded-full border border-[#C9A46A]/25 px-4 py-2 text-[10px] uppercase tracking-[0.22em] text-[#C9A46A] hover:bg-[#C9A46A]/10 transition-all">
-                Refresh Cloudbeds
+              <button onClick={integrationStatus?.connected ? loadCloudbedsReservations : connectCloudbeds} className="rounded-full border border-[#C9A46A]/25 px-4 py-2 text-[10px] uppercase tracking-[0.22em] text-[#C9A46A] hover:bg-[#C9A46A]/10 transition-all">
+                {integrationStatus?.connected ? 'Refresh Cloudbeds' : 'Connect Sandbox'}
               </button>
             </div>
 
