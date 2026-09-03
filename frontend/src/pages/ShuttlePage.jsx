@@ -1,11 +1,4 @@
-import React, { useMemo, useState } from 'react';
-
-import {
-  properties,
-  reservations,
-  shuttleRequests as initialShuttleRequests,
-} from '../data/semDemoData';
-
+import React, { useContext, useMemo, useState } from 'react';
 import {
   getPropertyById,
 } from '../utils/semOperationsMetrics';
@@ -25,6 +18,8 @@ const vehicles = [
 ];
 
 const ShuttlePage = () => {
+  const { reservations, properties } = useContext(CloudbedsDataContext);
+  const initialShuttleRequests = [];
   const [shuttleRequests, setShuttleRequests] = useState(initialShuttleRequests);
   const [statusFilter, setStatusFilter] = useState('all');
   const [selectedRequestId, setSelectedRequestId] = useState(
