@@ -2103,6 +2103,25 @@ async function listPmsSnapshot() {
             })
     );
 
+    const attemptSummary = allAttempts.map((attempt) => ({
+        path: attempt.path || attempt.endpoint || '',
+        apiBase: attempt.apiBase || '',
+        propertyId: attempt.propertyId || '',
+        query: attempt.query || '',
+        ok: Boolean(attempt.ok),
+        count: Number(attempt.count || 0),
+        total: attempt.total ?? null,
+        status: attempt.error?.status || null,
+        message: attempt.error?.message || null,
+        requestId: attempt.error?.requestId || null,
+        contentType: attempt.error?.contentType || null,
+    }));
+
+    const failedCalls = attemptSummary.filter((attempt) => !attempt.ok);
+    const successfulEmptyCalls = attemptSummary.filter(
+        (attempt) => attempt.ok && Number(attempt.count || 0) === 0
+    );
+
     const hasPmsData =
         reservations.length > 0 ||
         guests.length > 0 ||
@@ -2158,6 +2177,8 @@ async function listPmsSnapshot() {
             reservationAttempts: fetched.attempts,
             resourceAttempts: resources.attempts,
             missingScopes,
+            failedCalls,
+            successfulEmptyCalls,
             counts: {
                 reservations: reservations.length,
                 guests: guests.length,
