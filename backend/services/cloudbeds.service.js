@@ -6,7 +6,17 @@ const ENVIRONMENT = process.env.CLOUDBEDS_ENVIRONMENT || 'sandbox';
 const API_BASE = (process.env.CLOUDBEDS_API_BASE || 'https://api.cloudbeds.com/api/v1.3').replace(/\/$/, '');
 const AUTH_BASE = (process.env.CLOUDBEDS_AUTH_BASE || 'https://hotels.cloudbeds.com/api/v1.3').replace(/\/$/, '');
 const REDIRECT_URI = process.env.CLOUDBEDS_REDIRECT_URI || 'https://api.sem-management.com/api/integrations/cloudbeds/callback';
+const FRONTEND_URL = (process.env.PMS_FRONTEND_URL || 'https://pms.sem-management.com').replace(/\/$/, '');
 const PAGE_SIZE = 100;
+const AUTH_STATE_TTL_MINUTES = 10;
+const REQUIRED_SCOPES = [
+    'read:reservation',
+    'read:guest',
+    'read:room',
+    'read:dashboard',
+    'read:housekeeping',
+    'read:hotel',
+];
 
 let tablesReady = false;
 
@@ -41,6 +51,18 @@ async function ensureTables() {
             special_requests_json LONGTEXT NULL,
             updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             PRIMARY KEY (source, external_reservation_id)
+        )
+    `);
+
+    await db.query(`
+        CREATE TABLE IF NOT EXISTS integration_auth_states (
+            state_hash CHAR(64) PRIMARY KEY,
+            provider VARCHAR(32) NOT NULL,
+            environment VARCHAR(32) NOT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            expires_at DATETIME NOT NULL,
+            used_at DATETIME NULL,
+            INDEX idx_auth_state_provider (provider, environment, expires_at)
         )
     `);
 
