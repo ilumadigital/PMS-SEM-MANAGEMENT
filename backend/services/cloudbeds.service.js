@@ -84,8 +84,8 @@ function decryptSecret(record) {
     ]).toString('utf8');
 }
 
-async function cloudbedsRequest(path, { apiKey, method = 'GET', query, form } = {}) {
-    const base = path === '/access_token' ? AUTH_BASE : API_BASE;
+async function cloudbedsRequest(path, { apiKey, method = 'GET', query, form, baseUrl } = {}) {
+    const base = (baseUrl || (path === '/access_token' ? AUTH_BASE : API_BASE)).replace(/\/$/, '');
     const url = new URL(`${base}${path}`);
 
     if (query) {
@@ -134,6 +134,34 @@ async function cloudbedsRequest(path, { apiKey, method = 'GET', query, form } = 
     }
 
     return payload;
+}
+
+async function resolvePropertyApiBase(apiKey) {
+    try {
+        const metadata = await cloudbedsRequest('/oauth/metadata', { apiKey, baseUrl: API_BASE });
+        const resolved = metadata?.data?.api?.url;
+
+        if (resolved) {
+            return String(resolved).replace(/\/$/, '');
+        }
+    } catch (error) {
+        // Metadata is the authoritative way to resolve a property's API localization.
+        // If it is temporarily unavailable, fall back to the configured global base
+        // rather than making the whole PMS unavailable.
+        console.warn('[CLOUDBEDS] Could not resolve property API localization:', error.message);
+    }
+
+    return API_BASE;
+}
+
+function propertiesFromTokenResources(resources) {
+    return asArray(resources)
+        .filter((resource) => resource?.type === 'property' && resource?.id)
+        .map((resource) => ({
+            id: String(resource.id),
+            name: 'Cloudbeds Sandbox Property',
+            city: '',
+        }));
 }
 
 function extractDataArray(payload) {
@@ -345,12 +373,13 @@ async function exchangeAuthorizationCode(code) {
         throw error;
     }
 
-    // Partner API keys are scoped to the property that authorized the app.
-    // Do not require read:hotel here: the SEM PMS only needs reservation access
-    // to load the sandbox demo data.
-    await saveIntegration(apiKey, []);
+    // Cloudbeds includes the resources associated with the delivered API key.
+    // Persist the property IDs immediately so reservation requests can target
+    // the exact property that authorized the SEM app without requiring read:hotel.
+    const properties = propertiesFromTokenResources(tokenPayload?.resources);
+    await saveIntegration(apiKey, properties);
 
-    return { environment: ENVIRONMENT, properties: [] };
+    return { environment: ENVIRONMENT, properties };
 }
 
 async function getConnectionStatus() {
@@ -395,10 +424,10 @@ function isScopeError(error) {
         String(error?.message || '').toLowerCase().includes('scope required');
 }
 
-async function fetchReservationsPage(apiKey, propertyId, pageNumber, includeDetails = true) {
+async function fetchReservationsPage(apiKey, apiBase, propertyId, pageNumber, includeDetails = true) {
     const baseQuery = {
         propertyID: propertyId,
-        sortByRecent: 'true',
+        sortByRecent: true,
         pageSize: PAGE_SIZE,
         pageNumber,
     };
@@ -406,6 +435,7 @@ async function fetchReservationsPage(apiKey, propertyId, pageNumber, includeDeta
     if (!includeDetails) {
         return cloudbedsRequest('/getReservations', {
             apiKey,
+            baseUrl: apiBase,
             query: baseQuery,
         });
     }
@@ -413,20 +443,20 @@ async function fetchReservationsPage(apiKey, propertyId, pageNumber, includeDeta
     try {
         return await cloudbedsRequest('/getReservations', {
             apiKey,
+            baseUrl: apiBase,
             query: {
                 ...baseQuery,
-                includeGuestsDetails: 'true',
-                includeGuestRequirements: 'true',
-                includeCustomFields: 'true',
-                includeAllRooms: 'true',
+                includeGuestsDetails: true,
+                includeGuestRequirements: true,
+                includeCustomFields: true,
+                includeAllRooms: true,
             },
         });
     } catch (error) {
-        // Some sandbox properties grant read:reservation but not the additional
-        // guest/custom-field scopes. In that case still load the real bookings.
         if (isScopeError(error)) {
             return cloudbedsRequest('/getReservations', {
                 apiKey,
+                baseUrl: apiBase,
                 query: baseQuery,
             });
         }
@@ -434,34 +464,36 @@ async function fetchReservationsPage(apiKey, propertyId, pageNumber, includeDeta
     }
 }
 
-async function fetchAllReservations(apiKey) {
+async function fetchAllReservations(apiKey, propertyIds = []) {
     const all = [];
+    const apiBase = await resolvePropertyApiBase(apiKey);
+    const targets = propertyIds.length ? propertyIds : [null];
 
-    // Automatic-delivery API keys are property-scoped, so propertyID can be
-    // omitted. This avoids requiring read:hotel/getHotels just to discover it.
-    for (let pageNumber = 1; pageNumber <= 20; pageNumber += 1) {
-        let payload;
-        try {
-            payload = await fetchReservationsPage(apiKey, null, pageNumber, true);
-        } catch (error) {
-            if (isScopeError(error)) {
-                const scopeError = new Error(
-                    'Cloudbeds API key was delivered, but the property did not grant Reservations read permission. Enable the Reservations READ scope in the Cloudbeds Partner App, disconnect the app from the sandbox property, and reconnect it.'
-                );
-                scopeError.code = 'CLOUDBEDS_RESERVATION_SCOPE_REQUIRED';
-                scopeError.status = 403;
-                throw scopeError;
+    for (const propertyId of targets) {
+        for (let pageNumber = 1; pageNumber <= 20; pageNumber += 1) {
+            let payload;
+            try {
+                payload = await fetchReservationsPage(apiKey, apiBase, propertyId, pageNumber, true);
+            } catch (error) {
+                if (isScopeError(error)) {
+                    const scopeError = new Error(
+                        'Cloudbeds API key was delivered, but the property did not grant Reservations read permission. Enable Reservations READ in the Cloudbeds Partner App, disconnect the app from the sandbox property, and reconnect it.'
+                    );
+                    scopeError.code = 'CLOUDBEDS_RESERVATION_SCOPE_REQUIRED';
+                    scopeError.status = 403;
+                    throw scopeError;
+                }
+                throw error;
             }
-            throw error;
+
+            const pageItems = extractDataArray(payload);
+            all.push(...pageItems);
+
+            if (pageItems.length < PAGE_SIZE) break;
         }
-
-        const pageItems = extractDataArray(payload);
-        all.push(...pageItems);
-
-        if (pageItems.length < PAGE_SIZE) break;
     }
 
-    return all;
+    return { reservations: all, apiBase };
 }
 
 function normalizeStatus(status) {
@@ -667,19 +699,32 @@ function applyOperations(reservation, operations) {
 
 async function listReservations() {
     const apiKey = await getApiKey();
-    let rawReservations = await fetchAllReservations(apiKey);
+    const stored = await getStoredIntegration();
+
+    let storedProperties = [];
+    try {
+        storedProperties = stored?.properties_json ? JSON.parse(stored.properties_json) || [] : [];
+    } catch {
+        storedProperties = [];
+    }
+
+    const storedPropertyIds = uniqueStrings(storedProperties.map((property) => property.id));
+    const fetched = await fetchAllReservations(apiKey, storedPropertyIds);
+    let rawReservations = fetched.reservations;
 
     const inferredProperties = filterAllowedProperties(
         Array.from(
             new Map(
-                rawReservations
-                    .map((reservation) => ({
+                [
+                    ...storedProperties,
+                    ...rawReservations.map((reservation) => ({
                         id: String(pick(reservation, ['propertyID', 'propertyId'], '')),
                         name: String(pick(reservation, ['propertyName'], 'Cloudbeds Sandbox Property')),
                         city: String(pick(reservation, ['propertyCity'], '') || ''),
-                    }))
-                    .filter((property) => property.id)
-                    .map((property) => [property.id, property])
+                    })),
+                ]
+                    .filter((property) => property?.id)
+                    .map((property) => [String(property.id), property])
             ).values()
         )
     );
@@ -725,6 +770,8 @@ async function listReservations() {
         properties: inferredProperties,
         reservations,
         count: reservations.length,
+        cloudbedsApiBase: fetched.apiBase,
+        connectedPropertyIds: uniqueStrings(inferredProperties.map((property) => property.id)),
     };
 }
 
