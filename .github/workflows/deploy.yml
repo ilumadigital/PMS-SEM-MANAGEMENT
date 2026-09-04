@@ -5,6 +5,12 @@ on:
     branches:
       - main
 
+# Never let two production deploys mutate the same VPS at the same time.
+# A new push supersedes any older queued/in-progress deploy.
+concurrency:
+  group: pms-sem-production
+  cancel-in-progress: true
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -21,6 +27,7 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           source: "."
           target: "/home/deployer/pms-sem"
+          overwrite: true
 
       - name: 🐳 Run Docker Compose on VPS
         uses: appleboy/ssh-action@v1.0.3
@@ -28,10 +35,16 @@ jobs:
           host: ${{ secrets.SERVER_IP }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 15m
           script: |
-            set -e
+            set -euo pipefail
 
             cd /home/deployer/pms-sem
+
+            # GitHub concurrency protects new workflow runs, while this VPS lock also
+            # protects us from an older deploy that started before concurrency existed.
+            exec 9>/tmp/pms-sem-deploy.lock
+            flock -w 900 9 || { echo "Another PMS deploy still holds the VPS lock"; exit 1; }
 
             ENV_FILE=/home/deployer/pms-secrets/backend.env
             test -f "$ENV_FILE" || { echo "$ENV_FILE is missing on VPS"; exit 1; }
@@ -55,11 +68,19 @@ jobs:
             echo "Remove stale old config files"
             rm -f frontend/postcss.config.js frontend/postcss.config.cjs frontend/postcss.config.mjs
 
-            echo "Build backend and frontend production images"
-            docker compose build --no-cache backend frontend
+            echo "Remove stale Docker Compose temporary containers from interrupted deploys"
+            docker ps -a --format '{{.ID}} {{.Names}}' \
+              | awk '$2 ~ /^[0-9a-f]+_sem_pms_(db|backend|frontend)$/ {print $1}' \
+              | xargs -r docker rm -f
 
-            echo "Start full stack"
-            docker compose up -d --force-recreate
+            echo "Build backend and frontend production images"
+            docker compose build backend frontend
+
+            echo "Keep MariaDB running without recreating it"
+            docker compose up -d db
+
+            echo "Recreate application containers only"
+            docker compose up -d --no-deps --force-recreate backend frontend
 
             echo "Check running containers"
             docker compose ps

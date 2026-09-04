@@ -16,9 +16,13 @@ jobs:
 
       - name: Validate backend syntax
         run: |
+          node --check backend/server.js
           node --check backend/services/cloudbeds.service.js
           node --check backend/controllers/cloudbeds.controller.js
           node --check backend/routes/cloudbeds.routes.js
+          node --check backend/services/guestPortal.service.js
+          node --check backend/controllers/guestPortal.controller.js
+          node --check backend/routes/guestPortal.routes.js
 
       - name: Setup Node
         uses: actions/setup-node@v4
