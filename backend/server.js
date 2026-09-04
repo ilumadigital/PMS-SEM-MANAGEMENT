@@ -20,6 +20,7 @@ const receptionRoutes = require('./routes/reception.routes');
 const cleaningRoutes = require('./routes/cleaning.routes');
 const cloudbedsRoutes = require('./routes/cloudbeds.routes');
 const guestPortalRoutes = require('./routes/guestPortal.routes');
+const operationsRoutes = require('./routes/operations.routes');
 
 // --- GLOBAL MIDDLEWARES ---
 app.use(cors());
@@ -31,6 +32,7 @@ app.use('/api/reception', receptionRoutes);
 app.use('/api/cleaning', cleaningRoutes);
 app.use('/api/integrations/cloudbeds', cloudbedsRoutes);
 app.use('/api/guest-portal', guestPortalRoutes);
+app.use('/api/operations', operationsRoutes);
 
 // --- ΔΟΚΙΜΗ ΣΥΝΔΕΣΗΣ ΜΕ MARIADB ---
 async function testDatabaseConnection() {
