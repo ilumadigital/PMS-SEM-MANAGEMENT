@@ -1,5 +1,6 @@
 import React, { useContext, useMemo, useState } from 'react';
 import { CloudbedsDataContext } from '../context/CloudbedsDataContext';
+import api from '../services/api';
 import {
   EmptyState,
   MetricCard,
@@ -20,6 +21,9 @@ const BookingsPage = () => {
   const [statusFilter, setStatusFilter] = useState('all');
   const [propertyFilter, setPropertyFilter] = useState('all');
   const [selectedId, setSelectedId] = useState(null);
+  const [sendingInstructions, setSendingInstructions] = useState(false);
+  const [instructionResult, setInstructionResult] = useState(null);
+  const [instructionError, setInstructionError] = useState('');
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -39,23 +43,58 @@ const BookingsPage = () => {
           .filter(Boolean)
           .some((value) => String(value).toLowerCase().includes(term));
 
-      const statusMatch =
-        statusFilter === 'all' || reservation.status === statusFilter;
-      const propertyMatch =
-        propertyFilter === 'all' || reservation.propertyId === propertyFilter;
+      const statusMatch = statusFilter === 'all' || reservation.status === statusFilter;
+      const propertyMatch = propertyFilter === 'all' || reservation.propertyId === propertyFilter;
 
       return searchMatch && statusMatch && propertyMatch;
     });
   }, [reservations, search, statusFilter, propertyFilter]);
 
-  const selected =
-    reservations.find((reservation) => reservation.id === selectedId) ||
-    filtered[0] ||
-    null;
+  const selected = reservations.find((reservation) => reservation.id === selectedId) || filtered[0] || null;
 
   const confirmed = reservations.filter((item) => item.status === 'confirmed').length;
   const inHouse = reservations.filter((item) => item.status === 'in_house').length;
   const cancelled = reservations.filter((item) => item.status === 'cancelled').length;
+
+  const selectReservation = (reservationId) => {
+    setSelectedId(reservationId);
+    setInstructionResult(null);
+    setInstructionError('');
+  };
+
+  const sendInstructions = async () => {
+    if (!selected) return;
+    if (!selected.guestEmail) {
+      setInstructionError('This reservation does not have a guest email in Cloudbeds.');
+      return;
+    }
+
+    const confirmedSend = window.confirm(
+      `Send the secure online check-in link to ${selected.guestEmail}?`
+    );
+    if (!confirmedSend) return;
+
+    setSendingInstructions(true);
+    setInstructionResult(null);
+    setInstructionError('');
+    try {
+      const response = await api.post(`/guest-portal/reservations/${selected.id}/send-instructions`);
+      setInstructionResult(response.data.data);
+    } catch (requestError) {
+      setInstructionError(requestError.response?.data?.message || 'Guest instructions could not be sent.');
+    } finally {
+      setSendingInstructions(false);
+    }
+  };
+
+  const copyPortalLink = async () => {
+    if (!instructionResult?.portalUrl) return;
+    try {
+      await navigator.clipboard.writeText(instructionResult.portalUrl);
+    } catch {
+      window.prompt('Copy guest portal link:', instructionResult.portalUrl);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -112,7 +151,7 @@ const BookingsPage = () => {
         <MetricCard label="Cancelled" value={loading ? '…' : cancelled} tone={cancelled ? 'rose' : 'default'} />
       </div>
 
-      <div className="grid grid-cols-1 gap-5 2xl:grid-cols-[1fr_360px]">
+      <div className="grid grid-cols-1 gap-5 2xl:grid-cols-[1fr_380px]">
         <Panel title="Reservation list" description="Search and filter Cloudbeds reservations.">
           <div className="grid gap-3 border-b border-slate-100 p-4 md:grid-cols-[1fr_180px_220px_auto]">
             <input
@@ -139,9 +178,7 @@ const BookingsPage = () => {
             >
               <option value="all">All properties</option>
               {properties.map((property) => (
-                <option key={property.id} value={property.id}>
-                  {property.name}
-                </option>
+                <option key={property.id} value={property.id}>{property.name}</option>
               ))}
             </select>
             <button
@@ -174,20 +211,16 @@ const BookingsPage = () => {
                 {filtered.map((reservation) => (
                   <tr
                     key={reservation.id}
-                    onClick={() => setSelectedId(reservation.id)}
+                    onClick={() => selectReservation(reservation.id)}
                     className={[
                       'cursor-pointer hover:bg-slate-50',
                       selected?.id === reservation.id ? 'bg-blue-50/60' : '',
                     ].join(' ')}
                   >
-                    <Td className="font-mono text-xs font-semibold text-slate-800">
-                      {reservation.id}
-                    </Td>
+                    <Td className="font-mono text-xs font-semibold text-slate-800">{reservation.id}</Td>
                     <Td>
                       <div className="font-semibold text-slate-950">{reservation.guestName}</div>
-                      <div className="mt-0.5 text-xs text-slate-500">
-                        {reservation.guestEmail || reservation.guestPhone || 'No contact details'}
-                      </div>
+                      <div className="mt-0.5 text-xs text-slate-500">{reservation.guestEmail || reservation.guestPhone || 'No contact details'}</div>
                     </Td>
                     <Td>{formatDate(reservation.arrivalDate)}</Td>
                     <Td>{formatDate(reservation.departureDate)}</Td>
@@ -222,6 +255,34 @@ const BookingsPage = () => {
               <div>
                 <div className="text-lg font-bold text-slate-950">{selected.guestName}</div>
                 <div className="mt-1 font-mono text-xs text-slate-500">{selected.id}</div>
+              </div>
+
+              <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4">
+                <div className="text-sm font-black text-sky-950">Guest Experience</div>
+                <div className="mt-1 text-xs leading-5 text-sky-800">
+                  Send the guest a unique secure link for online check-in, arrival/departure times and add-on requests.
+                </div>
+                <button
+                  onClick={sendInstructions}
+                  disabled={sendingInstructions || !selected.guestEmail || selected.status === 'cancelled'}
+                  className="mt-4 w-full rounded-xl bg-sky-600 px-4 py-3 text-sm font-bold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {sendingInstructions ? 'Sending…' : 'Send Instructions'}
+                </button>
+                {!selected.guestEmail && <div className="mt-2 text-xs font-semibold text-amber-700">Guest email is missing in Cloudbeds.</div>}
+                {instructionError && <div className="mt-3 rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs text-rose-700">{instructionError}</div>}
+                {instructionResult && (
+                  <div className="mt-3 rounded-xl border border-sky-200 bg-white p-3">
+                    <div className={`text-xs font-bold ${instructionResult.emailSent ? 'text-emerald-700' : 'text-amber-700'}`}>
+                      {instructionResult.emailSent ? 'Email sent successfully.' : instructionResult.message || 'Secure link created.'}
+                    </div>
+                    <div className="mt-2 break-all text-[11px] text-slate-500">{instructionResult.portalUrl}</div>
+                    <div className="mt-3 flex gap-2">
+                      <button onClick={copyPortalLink} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">Copy link</button>
+                      <a href={instructionResult.portalUrl} target="_blank" rel="noreferrer" className="rounded-lg border border-sky-300 px-3 py-2 text-xs font-bold text-sky-700 hover:bg-sky-50">Open portal</a>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-x-4 gap-y-4">
@@ -267,9 +328,7 @@ const BookingsPage = () => {
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Special requests</div>
                   <div className="mt-2 space-y-2">
                     {selected.specialRequests.map((request, index) => (
-                      <div key={`${request}-${index}`} className="rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-700">
-                        {request}
-                      </div>
+                      <div key={`${request}-${index}`} className="rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-700">{request}</div>
                     ))}
                   </div>
                 </div>
