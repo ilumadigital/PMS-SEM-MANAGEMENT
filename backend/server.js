@@ -7,6 +7,14 @@ const authRoutes = require('./routes/auth.routes');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// MariaDB BIGINT columns are returned by the Node connector as JavaScript BigInt.
+// Native JSON.stringify (and therefore Express res.json) cannot serialize BigInt.
+// Serialize BIGINT values as strings globally so API responses never crash and
+// database identifiers keep their full precision.
+app.set('json replacer', (_key, value) => (
+    typeof value === 'bigint' ? value.toString() : value
+));
+
 const webhookRoutes = require('./routes/webhook.routes');
 const receptionRoutes = require('./routes/reception.routes');
 const cleaningRoutes = require('./routes/cleaning.routes');
@@ -42,8 +50,8 @@ testDatabaseConnection();
 
 // --- ΒΑΣΙΚΟ TEST ROUTE ---
 app.get('/api/test', (req, res) => {
-    res.json({ 
-        status: "Online", 
+    res.json({
+        status: "Online",
         message: "SEM Operations Hub API is running smoothly (Phase A)",
         cloudbedsMode: process.env.CLOUDBEDS_ENVIRONMENT || 'sandbox',
         timestamp: new Date()
