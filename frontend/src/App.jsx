@@ -17,14 +17,14 @@ import CustomersPage from './pages/CustomersPage';
 import RoomsPage from './pages/RoomsPage';
 import StatisticsPage from './pages/StatisticsPage';
 import SettingsPage from './pages/SettingsPage';
+import GuestPortalPage from './pages/GuestPortalPage';
 
 import ReceptionDash from './pages/ReceptionDash';
 import SupervisorPanel from './pages/SupervisorPanel';
 import CleaningMobile from './pages/CleaningMobile';
-
 import ShuttlePage from './pages/ShuttlePage';
 
-const ProtectedApp = () => {
+const ProtectedRoutes = () => {
   const { user } = useContext(AuthContext);
 
   if (!user) {
@@ -33,36 +33,42 @@ const ProtectedApp = () => {
 
   return (
     <CloudbedsDataProvider>
-      <BrowserRouter>
       <Routes>
         <Route path="/" element={<AppShell />}>
           <Route index element={<Navigate to="/dashboard" replace />} />
-
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="bookings" element={<BookingsPage />} />
           <Route path="customers" element={<CustomersPage />} />
           <Route path="rooms" element={<RoomsPage />} />
           <Route path="statistics" element={<StatisticsPage />} />
           <Route path="settings" element={<SettingsPage />} />
-
           <Route path="reception" element={<ReceptionDash />} />
           <Route path="supervisor" element={<SupervisorPanel />} />
           <Route path="cleaning-mobile" element={<CleaningMobile />} />
           <Route path="shuttle" element={<ShuttlePage />} />
         </Route>
-
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
-      </BrowserRouter>
     </CloudbedsDataProvider>
   );
 };
 
 function App() {
   return (
-    <AuthProvider>
-      <ProtectedApp />
-    </AuthProvider>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/guest/:token" element={<GuestPortalPage />} />
+        <Route path="/guest/:token/check-in" element={<GuestPortalPage forceCheckin />} />
+        <Route
+          path="/*"
+          element={
+            <AuthProvider>
+              <ProtectedRoutes />
+            </AuthProvider>
+          }
+        />
+      </Routes>
+    </BrowserRouter>
   );
 }
 
