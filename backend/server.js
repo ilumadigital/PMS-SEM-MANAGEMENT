@@ -8,10 +8,10 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 const webhookRoutes = require('./routes/webhook.routes');
-
 const receptionRoutes = require('./routes/reception.routes');
 const cleaningRoutes = require('./routes/cleaning.routes');
 const cloudbedsRoutes = require('./routes/cloudbeds.routes');
+const guestPortalRoutes = require('./routes/guestPortal.routes');
 
 // --- GLOBAL MIDDLEWARES ---
 app.use(cors());
@@ -19,10 +19,10 @@ app.use(express.json()); // Απαραίτητο για να διαβάζει JS
 // --- API ROUTES ---
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/auth', authRoutes);
-
 app.use('/api/reception', receptionRoutes);
 app.use('/api/cleaning', cleaningRoutes);
 app.use('/api/integrations/cloudbeds', cloudbedsRoutes);
+app.use('/api/guest-portal', guestPortalRoutes);
 
 // --- ΔΟΚΙΜΗ ΣΥΝΔΕΣΗΣ ΜΕ MARIADB ---
 async function testDatabaseConnection() {
