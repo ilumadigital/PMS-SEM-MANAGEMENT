@@ -1,4 +1,5 @@
 import React, { useContext, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { CloudbedsDataContext } from '../context/CloudbedsDataContext';
 import {
   EmptyState, MetricCard, PageHeader, Panel, StatusBadge, TableShell, Td, Th,
@@ -6,6 +7,7 @@ import {
 } from '../components/PmsUi';
 
 const ReceptionDash = () => {
+  const navigate = useNavigate();
   const {
     reservations, dashboard, diagnostics, loading, refresh, reauthorize, status,
     updateReservation, writeState,
@@ -46,7 +48,11 @@ const ReceptionDash = () => {
   };
 
   return <div className="space-y-6">
-    <PageHeader title="Front Desk" description="Today’s arrivals and departures with one-click Cloudbeds check-in / check-out." actions={<button onClick={refresh} className="rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-blue-700">Refresh Cloudbeds</button>} />
+    <PageHeader title="Front Desk" description="Today’s arrivals, departures and direct Cloudbeds reservation operations." actions={<div className="flex flex-wrap gap-2"><button onClick={()=>navigate('/calendar')} className="rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50">Open Calendar</button><button onClick={()=>navigate('/calendar?new=1')} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-blue-700">+ New reservation</button><button onClick={refresh} className="rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">Refresh</button></div>} />
+
+    <div className="rounded-2xl border border-blue-200 bg-gradient-to-r from-blue-50 to-white px-5 py-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><div className="text-sm font-black text-blue-950">Direct booking desk</div><div className="mt-1 text-xs leading-5 text-blue-800">Open the hotel calendar before creating a reservation. The PMS checks live Cloudbeds room availability and blocks conflicting bookings server-side.</div></div><button onClick={()=>navigate('/calendar?new=1')} className="shrink-0 rounded-xl bg-slate-950 px-4 py-3 text-sm font-black text-white">Create booking</button></div>
+    </div>
 
     {status?.authorized && reservations.length===0 && !loading && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4"><div className="text-sm font-semibold text-amber-900">Front Desk is connected, but reservation details are unavailable.</div><div className="mt-1 text-xs text-amber-800">{reservationScopeMissing?'Cloudbeds did not grant Reservations READ.':'The current property binding returned no reservation rows.'}</div><button onClick={reauthorize} className="mt-3 rounded-lg bg-amber-700 px-3 py-2 text-xs font-semibold text-white">Disconnect & re-authorize</button></div>}
     {(writeState.error || notice) && <div className={`rounded-xl border px-4 py-3 text-sm font-semibold ${writeState.error?'border-rose-200 bg-rose-50 text-rose-700':'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>{writeState.error || notice}</div>}
