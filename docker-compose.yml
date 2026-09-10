@@ -26,6 +26,7 @@ services:
       - DB_PASSWORD=root
       - DB_NAME=sem_pms_db
       - DB_PORT=3306
+      - CLOUDBEDS_AUTH_SCOPES=read:customFields,read:dashboard,read:guest,write:guest,read:hotel,read:housekeeping,write:housekeeping,read:reservation,write:reservation,read:resourceReservations,read:room,read:roomblock,write:roomblock,read:addon,read:item,write:item,read:currency,read:payment,read:rate,read:taxesAndFees
     depends_on:
       - db
 
