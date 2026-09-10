@@ -1,6 +1,5 @@
 import axios from 'axios';
 
-// Αν υπάρχει το VITE_API_URL (στον server) το παίρνει, αλλιώς παίζει τοπικά (στο PC σου)
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 const api = axios.create({
@@ -10,15 +9,26 @@ const api = axios.create({
     }
 });
 
-// Αυτόματος έλεγχος για το Token πριν από κάθε αίτημα
 api.interceptors.request.use((config) => {
     const token = localStorage.getItem('sem_jwt_token');
     if (token) {
         config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
-}, (error) => {
-    return Promise.reject(error);
-});
+}, (error) => Promise.reject(error));
+
+api.interceptors.response.use((response) => {
+    const method = String(response.config?.method || 'get').toLowerCase();
+    if (typeof window !== 'undefined' && ['post', 'put', 'patch', 'delete'].includes(method)) {
+        window.dispatchEvent(new CustomEvent('sem:pms-mutated', {
+            detail: {
+                method,
+                url: response.config?.url || '',
+                occurredAt: Date.now(),
+            },
+        }));
+    }
+    return response;
+}, (error) => Promise.reject(error));
 
 export default api;
