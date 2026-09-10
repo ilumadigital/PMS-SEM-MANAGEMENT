@@ -1,18 +1,24 @@
 @import "tailwindcss";
-@import url("https://fonts.googleapis.com/css?family=Google+Sans:400,500,700&subset=greek,latin,latin-ext&display=swap");
+@import url("https://fonts.googleapis.com/css?family=Google+Sans:400,500,600,700&subset=greek,latin,latin-ext&display=swap");
 
 @theme {
-  --font-sans: "Google Sans", sans-serif;
+  --font-sans: "Google Sans", "Google Sans Text", Arial, sans-serif;
 }
 
 :root {
-  --sem-font-family: "Google Sans", sans-serif;
+  --sem-font-family: "Google Sans", "Google Sans Text", Arial, sans-serif;
+  --sem-bg: #f5f7fb;
+  --sem-surface: #ffffff;
+  --sem-border: #e2e8f0;
+  --sem-text: #0f172a;
+  --sem-muted: #64748b;
+  --sem-primary: #2563eb;
   font-family: var(--sem-font-family);
-  color-scheme: dark;
-  background: #070707;
-  color: #e8e1d5;
-  font-synthesis-style: none;
-  text-rendering: geometricPrecision;
+  color-scheme: light;
+  background: var(--sem-bg);
+  color: var(--sem-text);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -37,18 +43,11 @@ html {
 }
 
 body {
-  margin: 0;
   min-width: 320px;
-  background: #070707;
-  color: #e8e1d5;
+  background: var(--sem-bg);
+  color: var(--sem-text);
 }
 
-/*
- * PMS typography contract:
- * - Google Sans is the only UI typeface.
- * - No component, utility class or semantic tag may render italic text.
- * - The rule is intentionally global so it also covers the public Guest Portal.
- */
 #root,
 #root *,
 #root *::before,
@@ -87,6 +86,24 @@ pre {
   font-style: normal !important;
 }
 
+/* Keep typography deliberate and consistent across old and new screens. */
+.pms-app .font-black,
+.pms-app .font-extrabold {
+  font-weight: 700 !important;
+}
+
+.pms-app .font-bold {
+  font-weight: 700 !important;
+}
+
+.pms-app .font-semibold {
+  font-weight: 600 !important;
+}
+
+.pms-app .font-medium {
+  font-weight: 500 !important;
+}
+
 button,
 input,
 textarea,
@@ -96,11 +113,93 @@ select {
 
 button {
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+.pms-app input,
+.pms-app textarea,
+.pms-app select {
+  transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+
+.pms-app input:focus,
+.pms-app textarea:focus,
+.pms-app select:focus {
+  outline: none;
+  border-color: #93b4f8;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.10);
+}
+
+.pms-app button,
+.pms-app a {
+  transition-property: color, background-color, border-color, box-shadow, transform, opacity;
+  transition-duration: 160ms;
+  transition-timing-function: ease;
+}
+
+.pms-app button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.pms-app table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.pms-app tbody tr {
+  transition: background-color 140ms ease;
+}
+
+.pms-app tbody tr:hover {
+  background-color: rgba(248, 250, 252, 0.72);
+}
+
+.pms-app h1,
+.pms-app h2,
+.pms-app h3,
+.pms-app h4 {
+  letter-spacing: -0.018em;
+}
+
+.pms-button-primary {
+  border-radius: 12px;
+  border: 1px solid #1d4ed8;
+  background: linear-gradient(180deg, #2f6fed 0%, #2563eb 100%);
+  color: #fff;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.18);
+}
+
+.pms-button-primary:hover {
+  background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
+  box-shadow: 0 8px 20px rgba(37, 99, 235, 0.24);
+}
+
+.pms-button-secondary {
+  border-radius: 12px;
+  border: 1px solid #dbe3ef;
+  background: #fff;
+  color: #334155;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.pms-button-secondary:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
 }
 
 ::selection {
-  background: rgba(201, 164, 106, 0.35);
-  color: #ffffff;
+  background: rgba(37, 99, 235, 0.18);
+  color: #0f172a;
 }
 
 ::-webkit-scrollbar {
@@ -109,15 +208,18 @@ button {
 }
 
 ::-webkit-scrollbar-track {
-  background: #090909;
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(201, 164, 106, 0.28);
+  background: rgba(100, 116, 139, 0.28);
   border-radius: 999px;
-  border: 2px solid #090909;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(201, 164, 106, 0.45);
+  background: rgba(71, 85, 105, 0.42);
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
