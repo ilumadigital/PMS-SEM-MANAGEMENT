@@ -1,5 +1,5 @@
-@import "tailwindcss";
 @import url("https://fonts.googleapis.com/css?family=Google+Sans:400,500,600,700&subset=greek,latin,latin-ext&display=swap");
+@import "tailwindcss";
 
 @theme {
   --font-sans: "Google Sans", "Google Sans Text", Arial, sans-serif;
@@ -86,7 +86,6 @@ pre {
   font-style: normal !important;
 }
 
-/* Keep typography deliberate and consistent across old and new screens. */
 .pms-app .font-black,
 .pms-app .font-extrabold {
   font-weight: 700 !important;
