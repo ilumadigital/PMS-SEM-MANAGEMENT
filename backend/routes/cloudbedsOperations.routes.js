@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const operations = require('../services/cloudbedsOperations.service');
+const reservationCreator = require('../services/cloudbedsReservationCreate.service');
 const roomAssignments = require('../services/cloudbedsRoomAssignment.service');
 const { protect, restrictTo } = require('../middleware/auth.middleware');
 
@@ -62,25 +63,26 @@ router.get('/reservations/:reservationId/details', protect, restrictTo(...READ_R
 
 router.post('/reservations', protect, restrictTo(...CREATE_ROLES), async (req, res) => {
     try {
-        const data = await operations.createReservation(req.body || {}, actor(req));
+        const data = await reservationCreator.createReservation(req.body || {}, actor(req));
         const requestedRoomId = req.body?.roomId || req.body?.roomID;
 
-        // postReservation creates the booking at room-type level. Always run the
-        // deterministic physical-room verifier afterwards so Front Desk never gets
-        // a false success for a booking that stayed unassigned in Cloudbeds.
-        if (data?.reservationId && requestedRoomId) {
+        // The create call now asks Cloudbeds for the physical room in the same
+        // postReservation request. Only use postRoomAssign as a verified fallback
+        // when Cloudbeds created the reservation but left that room unassigned.
+        if (data?.reservationId && requestedRoomId && !data.physicalRoomVerified) {
             try {
                 const ensuredAssignment = await roomAssignments.assignRoom(
                     data.reservationId,
                     {
                         ...(req.body || {}),
                         newRoomId: requestedRoomId,
-                        roomTypeId: req.body?.roomTypeId || req.body?.roomTypeID,
+                        roomTypeId: data.roomTypeId || req.body?.roomTypeId || req.body?.roomTypeID,
                     },
                     actor(req)
                 );
                 data.assignment = ensuredAssignment;
                 data.assignmentError = null;
+                data.physicalRoomVerified = true;
                 data.partial = false;
             } catch (assignmentError) {
                 data.partial = true;
@@ -96,7 +98,7 @@ router.post('/reservations', protect, restrictTo(...CREATE_ROLES), async (req, r
         res.status(201).json({
             success: true,
             message: data.partial
-                ? 'Reservation was created in Cloudbeds, but the requested physical room was NOT verified. Assign a room before check-in.'
+                ? 'Reservation created in Cloudbeds, but the requested physical room still needs assignment.'
                 : 'Reservation created and physical room verified in Cloudbeds.',
             data,
         });
