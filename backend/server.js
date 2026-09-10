@@ -16,6 +16,7 @@ const receptionRoutes = require('./routes/reception.routes');
 const cleaningRoutes = require('./routes/cleaning.routes');
 const cloudbedsRoutes = require('./routes/cloudbeds.routes');
 const guestPortalRoutes = require('./routes/guestPortal.routes');
+const guestManagementRoutes = require('./routes/guestManagement.routes');
 const operationsRoutes = require('./routes/operations.routes');
 const managementRoutes = require('./routes/management.routes');
 
@@ -27,6 +28,7 @@ app.use('/api/reception', receptionRoutes);
 app.use('/api/cleaning', cleaningRoutes);
 app.use('/api/integrations/cloudbeds', cloudbedsRoutes);
 app.use('/api/guest-portal', guestPortalRoutes);
+app.use('/api/guest-management', guestManagementRoutes);
 app.use('/api/operations', operationsRoutes);
 app.use('/api/management', managementRoutes);
 
