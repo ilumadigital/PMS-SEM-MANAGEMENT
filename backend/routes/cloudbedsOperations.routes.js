@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const operations = require('../services/cloudbedsOperations.service');
+const roomAssignments = require('../services/cloudbedsRoomAssignment.service');
 const { protect, restrictTo } = require('../middleware/auth.middleware');
 
 const actor = (req) => ({ userId: req.user?.userId, role: req.user?.role });
@@ -81,8 +82,14 @@ router.put('/reservations/:reservationId', protect, restrictTo(...WRITE_ROLES), 
 
 router.post('/reservations/:reservationId/room-assignment', protect, restrictTo(...WRITE_ROLES), async (req, res) => {
     try {
-        const data = await operations.assignRoom(req.params.reservationId, req.body || {}, actor(req));
-        res.json({ success: true, message: 'Room assignment synced and verified in Cloudbeds.', data });
+        const data = await roomAssignments.assignRoom(req.params.reservationId, req.body || {}, actor(req));
+        res.json({
+            success: true,
+            message: data.alreadyAssigned
+                ? 'The selected room is already assigned in Cloudbeds.'
+                : 'Room assignment synced and verified in Cloudbeds.',
+            data,
+        });
     } catch (error) { sendError(res, error); }
 });
 
