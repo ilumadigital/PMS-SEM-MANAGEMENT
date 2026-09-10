@@ -5,8 +5,6 @@ on:
     branches:
       - main
 
-# Never let two production deploys mutate the same VPS at the same time.
-# A new push supersedes any older queued/in-progress deploy.
 concurrency:
   group: pms-sem-production
   cancel-in-progress: true
@@ -25,7 +23,7 @@ jobs:
           host: ${{ secrets.SERVER_IP }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: "."
+          source: "backend,frontend,docker-compose.yml"
           target: "/home/deployer/pms-sem"
           overwrite: true
 
@@ -41,8 +39,6 @@ jobs:
 
             cd /home/deployer/pms-sem
 
-            # GitHub concurrency protects new workflow runs, while this VPS lock also
-            # protects us from an older deploy that started before concurrency existed.
             exec 9>/tmp/pms-sem-deploy.lock
             flock -w 900 9 || { echo "Another PMS deploy still holds the VPS lock"; exit 1; }
 
