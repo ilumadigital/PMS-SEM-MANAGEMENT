@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const operations = require('../services/cloudbedsOperations.service');
+const roomAssignments = require('../services/cloudbedsRoomAssignment.service');
 const { protect, restrictTo } = require('../middleware/auth.middleware');
 
 const actor = (req) => ({ userId: req.user?.userId, role: req.user?.role });
@@ -62,11 +63,41 @@ router.get('/reservations/:reservationId/details', protect, restrictTo(...READ_R
 router.post('/reservations', protect, restrictTo(...CREATE_ROLES), async (req, res) => {
     try {
         const data = await operations.createReservation(req.body || {}, actor(req));
+        const requestedRoomId = req.body?.roomId || req.body?.roomID;
+
+        // postReservation creates the booking at room-type level. Always run the
+        // deterministic physical-room verifier afterwards so Front Desk never gets
+        // a false success for a booking that stayed unassigned in Cloudbeds.
+        if (data?.reservationId && requestedRoomId) {
+            try {
+                const ensuredAssignment = await roomAssignments.assignRoom(
+                    data.reservationId,
+                    {
+                        ...(req.body || {}),
+                        newRoomId: requestedRoomId,
+                        roomTypeId: req.body?.roomTypeId || req.body?.roomTypeID,
+                    },
+                    actor(req)
+                );
+                data.assignment = ensuredAssignment;
+                data.assignmentError = null;
+                data.partial = false;
+            } catch (assignmentError) {
+                data.partial = true;
+                data.assignmentError = {
+                    code: assignmentError.code || 'CLOUDBEDS_ROOM_ASSIGNMENT_NOT_APPLIED',
+                    message: assignmentError.message,
+                    requestId: assignmentError.requestId || null,
+                    details: assignmentError.details || null,
+                };
+            }
+        }
+
         res.status(201).json({
             success: true,
             message: data.partial
-                ? 'Reservation created in Cloudbeds, but physical room assignment requires attention.'
-                : 'Reservation created and assigned in Cloudbeds.',
+                ? 'Reservation was created in Cloudbeds, but the requested physical room was NOT verified. Assign a room before check-in.'
+                : 'Reservation created and physical room verified in Cloudbeds.',
             data,
         });
     } catch (error) { sendError(res, error); }
@@ -81,8 +112,14 @@ router.put('/reservations/:reservationId', protect, restrictTo(...WRITE_ROLES), 
 
 router.post('/reservations/:reservationId/room-assignment', protect, restrictTo(...WRITE_ROLES), async (req, res) => {
     try {
-        const data = await operations.assignRoom(req.params.reservationId, req.body || {}, actor(req));
-        res.json({ success: true, message: 'Room assignment synced and verified in Cloudbeds.', data });
+        const data = await roomAssignments.assignRoom(req.params.reservationId, req.body || {}, actor(req));
+        res.json({
+            success: true,
+            message: data.alreadyAssigned
+                ? 'The selected room is already assigned in Cloudbeds.'
+                : 'Room assignment synced and verified in Cloudbeds.',
+            data,
+        });
     } catch (error) { sendError(res, error); }
 });
 
