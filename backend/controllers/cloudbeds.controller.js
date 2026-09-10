@@ -1,4 +1,5 @@
 const cloudbedsService = require('../services/cloudbeds.service');
+const cloudbedsOperationsService = require('../services/cloudbedsOperations.service');
 
 function escapeHtml(value) {
     return String(value || '')
@@ -22,7 +23,7 @@ function sendError(res, error, fallbackStatus = 500) {
 
 const connect = async (req, res) => {
     try {
-        const authorization = await cloudbedsService.createAuthorizationUrl();
+        const authorization = await cloudbedsOperationsService.createAuthorizationUrl();
         return res.redirect(authorization.url);
     } catch (error) {
         return sendError(res, error, 500);
@@ -32,7 +33,7 @@ const connect = async (req, res) => {
 const reauthorize = async (req, res) => {
     try {
         await cloudbedsService.disconnectIntegration();
-        const authorization = await cloudbedsService.createAuthorizationUrl();
+        const authorization = await cloudbedsOperationsService.createAuthorizationUrl();
         return res.redirect(authorization.url);
     } catch (error) {
         return sendError(res, error, 502);
@@ -59,7 +60,7 @@ const callback = async (req, res) => {
             <!doctype html>
             <html lang="en">
               <head><meta charset="utf-8"><title>Cloudbeds connection failed</title></head>
-              <body style="font-family:Arial,sans-serif;padding:40px;background:#111;color:#fff">
+              <body style="font-family:'Google Sans',Arial,sans-serif;padding:40px;background:#111;color:#fff;font-style:normal">
                 <h1>Cloudbeds connection failed</h1>
                 <p>${escapeHtml(errorDescription || error)}</p>
               </body>
@@ -104,6 +105,7 @@ const callback = async (req, res) => {
             : noPropertyBinding
                 ? 'Cloudbeds issued the API key without a usable property binding and none of the PMS endpoints returned property data. Verify the Partner App permission scopes and authorize with an administrator property user who has API & Integrations access.'
                 : 'The API session is authorized, but the property returned no PMS records. Verify the Partner App permission scopes and the authorizing Cloudbeds user access.';
+        const writeScopes = cloudbedsOperationsService.FULL_AUTH_SCOPES.filter((scope) => scope.startsWith('write:'));
 
         return res.status(200).send(`
             <!doctype html>
@@ -113,21 +115,21 @@ const callback = async (req, res) => {
                 <meta name="viewport" content="width=device-width,initial-scale=1">
                 <title>${isReady ? 'Cloudbeds connected' : 'Cloudbeds connection needs attention'}</title>
               </head>
-              <body style="margin:0;font-family:Arial,sans-serif;background:#0c0c0c;color:#fff">
+              <body style="margin:0;font-family:'Google Sans',Arial,sans-serif;background:#0c0c0c;color:#fff;font-style:normal">
                 <main style="max-width:760px;margin:80px auto;padding:32px;border:1px solid #2f2f2f;border-radius:20px;background:#151515">
                   <div style="font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#c9a46a">SEM PMS · Cloudbeds</div>
-                  <h1 style="margin-top:18px">${isReady ? 'Sandbox connected and PMS data verified' : 'Authorization completed, but PMS data is not ready'}</h1>
+                  <h1 style="margin-top:18px">${isReady ? 'Cloudbeds connected for two-way PMS operations' : 'Authorization completed, but PMS data is not ready'}</h1>
                   <p style="line-height:1.7;color:#c9c4bc">Property: <strong style="color:#fff">${escapeHtml(propertyNames || 'Not discovered')}</strong></p>
                   <p style="line-height:1.7;color:#c9c4bc">Token resources: <strong style="color:#fff">${escapeHtml(tokenResourceLabel || 'None returned')}</strong></p>
                   ${
                     isReady
-                      ? '<p style="line-height:1.7;color:#c9c4bc">Reservations, guests, rooms and operational data can now be loaded from Cloudbeds.</p>'
+                      ? `<p style="line-height:1.7;color:#c9c4bc">Reservations, guests, rooms and housekeeping are readable. SEM also requested write access for: <strong style="color:#fff">${escapeHtml(writeScopes.join(', '))}</strong>.</p>`
                       : `<p style="line-height:1.7;color:#f0d6a5">Cloudbeds issued an API key, but the required PMS resources could not all be verified.</p>
                          <p style="line-height:1.7;color:#c9c4bc">Detected missing permissions: <strong style="color:#fff">${escapeHtml(missingScopes.join(', ') || 'None explicitly reported')}</strong></p>
                          <p style="line-height:1.7;color:#f0d6a5">${escapeHtml(guidance)}</p>
                          ${failedCallLabel ? `<p style="line-height:1.7;color:#ffb4b4">Failed API calls: <strong style="color:#fff">${escapeHtml(failedCallLabel)}</strong></p>` : ''}
                          ${!failedCallLabel && emptyCallLabel ? `<p style="line-height:1.7;color:#c9c4bc">Successful but empty API calls: <strong style="color:#fff">${escapeHtml(emptyCallLabel)}</strong></p>` : ''}
-                         <p style="line-height:1.7;color:#c9c4bc">Required for the full SEM PMS: <strong style="color:#fff">${escapeHtml((result.requiredScopes || []).join(', '))}</strong></p>`
+                         <p style="line-height:1.7;color:#c9c4bc">Required for the base PMS feed: <strong style="color:#fff">${escapeHtml((result.requiredScopes || []).join(', '))}</strong></p>`
                   }
                   <a href="${escapeHtml(cloudbedsService.FRONTEND_URL)}" style="display:inline-block;margin-top:18px;padding:14px 18px;border-radius:12px;background:#c9a46a;color:#111;text-decoration:none;font-weight:700">Open SEM PMS</a>
                 </main>
@@ -140,7 +142,7 @@ const callback = async (req, res) => {
             <!doctype html>
             <html lang="en">
               <head><meta charset="utf-8"><title>Cloudbeds connection failed</title></head>
-              <body style="font-family:Arial,sans-serif;padding:40px;background:#111;color:#fff">
+              <body style="font-family:'Google Sans',Arial,sans-serif;padding:40px;background:#111;color:#fff;font-style:normal">
                 <h1>Cloudbeds connection failed</h1>
                 <p>${escapeHtml(callbackError.message)}</p>
               </body>
@@ -152,7 +154,7 @@ const callback = async (req, res) => {
 const status = async (req, res) => {
     try {
         const result = await cloudbedsService.getConnectionStatus();
-        return res.status(200).json({ success: true, ...result });
+        return res.status(200).json({ success: true, ...result, writeScopesRequested: cloudbedsOperationsService.FULL_AUTH_SCOPES.filter((scope) => scope.startsWith('write:')) });
     } catch (error) {
         return sendError(res, error, 502);
     }
@@ -162,21 +164,19 @@ const config = async (req, res) => {
         return res.status(200).json({
             success: true,
             ...cloudbedsService.getRuntimeConfiguration(),
+            authorizationScopes: cloudbedsOperationsService.FULL_AUTH_SCOPES,
         });
     } catch (error) {
         return sendError(res, error, 500);
     }
 };
 
-
 const reservations = async (req, res) => {
     try {
         const result = await cloudbedsService.listReservations();
         return res.status(200).json({ success: true, ...result });
     } catch (error) {
-        if (error.code === 'CLOUDBEDS_NOT_CONNECTED') {
-            return sendError(res, error, 409);
-        }
+        if (error.code === 'CLOUDBEDS_NOT_CONNECTED') return sendError(res, error, 409);
         return sendError(res, error, 502);
     }
 };
@@ -186,25 +186,15 @@ const snapshot = async (req, res) => {
         const result = await cloudbedsService.listPmsSnapshot();
         return res.status(200).json({ success: true, ...result });
     } catch (error) {
-        if (error.code === 'CLOUDBEDS_NOT_CONNECTED') {
-            return sendError(res, error, 409);
-        }
+        if (error.code === 'CLOUDBEDS_NOT_CONNECTED') return sendError(res, error, 409);
         return sendError(res, error, 502);
     }
 };
 
 const updateReservationOperations = async (req, res) => {
     try {
-        const result = await cloudbedsService.saveReservationOperations(
-            req.params.reservationId,
-            req.body || {}
-        );
-
-        return res.status(200).json({
-            success: true,
-            message: 'Reservation operational details saved.',
-            data: result,
-        });
+        const result = await cloudbedsService.saveReservationOperations(req.params.reservationId, req.body || {});
+        return res.status(200).json({ success: true, message: 'Reservation operational details saved.', data: result });
     } catch (error) {
         return sendError(res, error, 500);
     }
