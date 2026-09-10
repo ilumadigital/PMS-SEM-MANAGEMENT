@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import api from '../services/api';
 
 const blankInfo = {
@@ -7,8 +7,19 @@ const blankInfo = {
   supportPhone: '', usefulInfo: '', accessReleased: false,
 };
 
+const prettyMethod = (value) => ({
+  car: 'Car', taxi: 'Taxi', 'airport-transfer': 'Airport transfer', 'public-transport': 'Public transport', other: 'Other',
+}[value] || value || 'Not provided');
+
+const formatDateTime = (value) => {
+  if (!value) return '—';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+};
+
 const GuestPortalManager = ({ reservation, instructionResult, onSend, sending, sendError }) => {
   const [data, setData] = useState(null);
+  const [journey, setJourney] = useState(null);
   const [stayInfo, setStayInfo] = useState(blankInfo);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -19,15 +30,24 @@ const GuestPortalManager = ({ reservation, instructionResult, onSend, sending, s
     if (!reservation?.id) return;
     setLoading(true); setError('');
     try {
-      const response = await api.get(`/guest-portal/reservations/${reservation.id}/manage`);
-      setData(response.data.data);
-      setStayInfo({ ...blankInfo, ...(response.data.data.stayInfo || {}) });
+      const [managementResponse, journeyResponse] = await Promise.all([
+        api.get(`/guest-portal/reservations/${reservation.id}/manage`),
+        api.get(`/guest-management/reservations/${reservation.id}/journey`),
+      ]);
+      setData(managementResponse.data.data);
+      setJourney(journeyResponse.data.data);
+      setStayInfo({ ...blankInfo, ...(managementResponse.data.data.stayInfo || {}) });
     } catch (requestError) {
       setError(requestError.response?.data?.message || 'Guest Portal data could not be loaded.');
     } finally { setLoading(false); }
   };
 
   useEffect(() => { load(); }, [reservation?.id]);
+
+  const submitted = journey?.submitted || {};
+  const arrivalTime = submitted.arrivalTime || reservation?.arrivalTime || '';
+  const departureTime = submitted.departureTime || reservation?.departureTime || '';
+  const guestServices = useMemo(() => journey?.addonRequests || [], [journey]);
 
   const save = async () => {
     setSaving(true); setMessage(''); setError('');
@@ -79,6 +99,45 @@ const GuestPortalManager = ({ reservation, instructionResult, onSend, sending, s
         )}
       </section>
 
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-100 bg-slate-950 px-5 py-4 text-white">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="text-sm font-black">Guest arrival & departure</div>
+              <div className="mt-1 text-xs text-slate-300">Times and travel details submitted directly by the guest during online check-in.</div>
+            </div>
+            <span className={`w-fit rounded-full px-2.5 py-1 text-[11px] font-bold ${journey?.portalStatus === 'completed' ? 'bg-emerald-400/15 text-emerald-200' : 'bg-amber-400/15 text-amber-200'}`}>
+              {journey?.portalStatus === 'completed' ? 'Guest submitted' : 'Awaiting guest'}
+            </span>
+          </div>
+        </div>
+        <div className="grid gap-px bg-slate-100 sm:grid-cols-2 lg:grid-cols-4">
+          <JourneyMetric label="Expected arrival" value={arrivalTime || 'Not provided'} strong missing={!arrivalTime} />
+          <JourneyMetric label="Expected departure" value={departureTime || 'Not provided'} strong missing={!departureTime} />
+          <JourneyMetric label="Arrival method" value={prettyMethod(submitted.arrivalMethod)} />
+          <JourneyMetric label="Flight / ferry" value={submitted.flightNumber || 'Not provided'} />
+        </div>
+        <div className="grid gap-4 p-5 lg:grid-cols-2">
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Guest details</div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <Detail label="Mobile" value={submitted.guestPhone || reservation?.guestPhone || 'Not provided'} />
+              <Detail label="Check-in completed" value={formatDateTime(journey?.completedAt)} />
+            </div>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Special requests</div>
+            <div className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-700">{submitted.specialRequests || 'No special requests submitted.'}</div>
+          </div>
+        </div>
+        {guestServices.length > 0 && (
+          <div className="border-t border-slate-100 px-5 py-4">
+            <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Services selected during check-in</div>
+            <div className="mt-3 flex flex-wrap gap-2">{guestServices.map((item) => <span key={item.id || item.name} className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700">{item.name || item.id}</span>)}</div>
+          </div>
+        )}
+      </section>
+
       <section className="rounded-2xl border border-slate-200 bg-white p-4">
         <div className="flex items-center justify-between"><div><div className="text-sm font-black text-slate-950">Room & property access</div><div className="mt-1 text-xs text-slate-500">Save private stay information. Codes stay hidden from the guest until you release access.</div></div>{loading && <span className="text-xs text-slate-400">Loading…</span>}</div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -119,6 +178,8 @@ const GuestPortalManager = ({ reservation, instructionResult, onSend, sending, s
   );
 };
 
+const JourneyMetric = ({ label, value, strong = false, missing = false }) => <div className="bg-white p-4"><div className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">{label}</div><div className={`mt-1 ${strong ? 'text-xl font-black' : 'text-sm font-bold'} ${missing ? 'text-amber-700' : 'text-slate-950'}`}>{value}</div></div>;
+const Detail = ({ label, value }) => <div><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">{label}</div><div className="mt-1 text-sm font-semibold text-slate-800">{value}</div></div>;
 const Field = ({ label, value, onChange }) => <label className="block"><span className="text-xs font-semibold text-slate-600">{label}</span><input value={value || ''} onChange={(e) => onChange(e.target.value)} className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500" /></label>;
 const Area = ({ label, value, onChange }) => <label className="block"><span className="text-xs font-semibold text-slate-600">{label}</span><textarea value={value || ''} onChange={(e) => onChange(e.target.value)} rows={3} className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500" /></label>;
 
