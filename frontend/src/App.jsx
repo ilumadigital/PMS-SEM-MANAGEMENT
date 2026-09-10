@@ -11,6 +11,7 @@ import RoomsPage from './pages/RoomsPage';
 import StatisticsPage from './pages/StatisticsPage';
 import SettingsPage from './pages/SettingsPage';
 import GuestPortalPage from './pages/GuestPortalPage';
+import GuestPortalAdminPage from './pages/GuestPortalAdminPage';
 import ReceptionDash from './pages/ReceptionDash';
 import SupervisorPanel from './pages/SupervisorPanel';
 import CleaningMobile from './pages/CleaningMobile';
@@ -29,6 +30,7 @@ const ProtectedRoutes = () => {
       <Route index element={<Navigate to="/dashboard" replace />} />
       <Route path="dashboard" element={<Gate user={user} roles={ALL_STAFF}><DashboardPage /></Gate>} />
       <Route path="bookings" element={<Gate user={user} roles={['admin','management','reception','supervisor']}><BookingsPage /></Gate>} />
+      <Route path="guest-management" element={<Gate user={user} roles={['admin','management','reception','supervisor']}><GuestPortalAdminPage /></Gate>} />
       <Route path="customers" element={<Gate user={user} roles={['admin','management','reception']}><CustomersPage /></Gate>} />
       <Route path="rooms" element={<Gate user={user} roles={['admin','management','reception','supervisor','cleaner','cleaning']}><RoomsPage /></Gate>} />
       <Route path="statistics" element={<Gate user={user} roles={['admin','management','supervisor']}><StatisticsPage /></Gate>} />
