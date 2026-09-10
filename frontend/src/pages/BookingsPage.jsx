@@ -50,6 +50,7 @@ const BookingsPage = () => {
   });
   const [charge, setCharge] = useState({ name: '', category: 'SEM Services', price: '', quantity: 1, note: '' });
   const [localNotice, setLocalNotice] = useState('');
+  const [localError, setLocalError] = useState('');
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -76,13 +77,13 @@ const BookingsPage = () => {
     });
     setNewRoomId(selected.roomId && !String(selected.roomId).startsWith('cloudbeds-unassigned-') ? String(selected.roomId) : '');
     setAdjustPrice(false);
-    setLocalNotice(''); setDetails(null); setDetailsError(''); setAvailability(null); clearWriteState();
+    setLocalNotice(''); setLocalError(''); setDetails(null); setDetailsError(''); setAvailability(null); clearWriteState();
     const parts = String(selected.guestName || '').trim().split(/\s+/);
     setGuestEdit((current) => ({ ...current, firstName: parts[0] || '', lastName: parts.slice(1).join(' '), email: selected.guestEmail || '', phone: selected.guestPhone || '' }));
 
     let active = true;
     setDetailsLoading(true);
-    api.get(`/integrations/cloudbeds/operations/reservations/${selected.id}/details`, { params: { propertyId: selected.propertyId, guestId: selected.guestId || undefined } })
+    api.get(`/integrations/cloudbeds/operations/reservations/${selected.id}/details`, { params: { propertyId: selected.propertyId, guestId: selected.guestId || undefined, _ts: Date.now() } })
       .then((response) => {
         if (!active) return;
         const data = response.data?.data || null;
@@ -138,6 +139,7 @@ const BookingsPage = () => {
             children: edit.children,
             roomId: newRoomId || selected.roomId || undefined,
             excludeReservationId: selected.id,
+            _ts: Date.now(),
           },
         });
         setAvailability(response.data?.data || null);
@@ -152,21 +154,31 @@ const BookingsPage = () => {
   const inHouse = reservations.filter((item) => item.status === 'in_house').length;
   const cancelled = reservations.filter((item) => item.status === 'cancelled').length;
   const selectedAssignment = details?.assignments?.find((item) => String(item.roomId) === String(selected?.roomId)) || details?.assignments?.[0] || null;
-  const liveInventory = availability?.inventory || [];
+  const liveInventory = availability?.inventory?.length
+    ? availability.inventory
+    : rooms.filter((room) => String(room.propertyId) === String(selected?.propertyId));
   const currentLiveRoom = liveInventory.find((room) => String(room.id) === String(selectedAssignment?.roomId || selected?.roomId)) || selectedRoom;
-  const roomOptions = uniqueRooms([currentLiveRoom, ...(availability?.availableRooms || [])]);
+  const roomOptions = uniqueRooms([currentLiveRoom, ...liveInventory]);
   const targetRoom = roomOptions.find((room) => String(room.id) === String(newRoomId));
-  const targetAvailable = !newRoomId || String(newRoomId) === String(selectedAssignment?.roomId || selected?.roomId)
+  const currentAssignedRoomId = String(selectedAssignment?.roomId || selected?.roomId || '');
+  const targetAvailable = !newRoomId || String(newRoomId) === currentAssignedRoomId
     ? availability?.roomAvailable !== false
     : availability?.roomAvailable === true;
 
   const selectReservation = (reservationId) => {
-    setSelectedId(reservationId); setInstructionResult(null); setInstructionError(''); setLocalNotice('');
+    setSelectedId(reservationId); setInstructionResult(null); setInstructionError(''); setLocalNotice(''); setLocalError('');
   };
   const run = async (fn, success) => {
-    setLocalNotice('');
-    try { await fn(); setLocalNotice(success); }
-    catch { /* Cloudbeds error is surfaced by writeState */ }
+    setLocalNotice(''); setLocalError('');
+    try {
+      const result = await fn();
+      if (success) setLocalNotice(success);
+      return result;
+    } catch (requestError) {
+      const message = requestError.response?.data?.message || requestError.message || 'Cloudbeds write failed.';
+      setLocalError(message);
+      return null;
+    }
   };
   const changeStatus = (nextStatus) => {
     if (!selected) return;
@@ -174,9 +186,11 @@ const BookingsPage = () => {
     run(() => updateReservation(selected.id, { propertyId: selected.propertyId, status: nextStatus }), `Reservation status verified in Cloudbeds: ${nextStatus.replace('_', ' ')}.`);
   };
   const saveStay = () => {
-    if (!selected || !edit.startDate || !edit.endDate) return;
-    if (edit.startDate >= edit.endDate) { setLocalNotice(''); return; }
-    if (availability?.roomAvailable === false) return;
+    setLocalError('');
+    if (!selected || !edit.startDate || !edit.endDate) { setLocalError('Check-in and check-out dates are required.'); return; }
+    if (edit.startDate >= edit.endDate) { setLocalError('Check-out must be after check-in.'); return; }
+    if (availabilityLoading) { setLocalError('Cloudbeds is still checking availability. Try again in a moment.'); return; }
+    if (availability?.roomAvailable === false) { setLocalError('The current room conflicts with the new dates. Choose another room or dates.'); return; }
     run(() => updateReservation(selected.id, {
       propertyId: selected.propertyId,
       startDate: edit.startDate,
@@ -186,18 +200,50 @@ const BookingsPage = () => {
       children: Number(edit.children || 0),
     }), 'Stay dates, occupancy and arrival time synced and verified in Cloudbeds.');
   };
-  const saveRoomAssignment = () => {
-    if (!selected || !newRoomId || !targetRoom || targetAvailable === false) return;
-    if (String(newRoomId) === String(selectedAssignment?.roomId || selected.roomId)) { setLocalNotice('This room is already assigned.'); return; }
-    run(() => assignRoom(selected.id, {
+  const saveRoomAssignment = async () => {
+    setLocalNotice(''); setLocalError('');
+    if (!selected) { setLocalError('Select a reservation first.'); return; }
+    if (!newRoomId) { setLocalError('Choose the room you want to assign.'); return; }
+    if (String(newRoomId) === currentAssignedRoomId) { setLocalNotice('This room is already assigned in Cloudbeds.'); return; }
+    if (availabilityLoading) { setLocalError('Cloudbeds is still checking this room. Try again in a moment.'); return; }
+    if (availability?.roomAvailable === false || targetAvailable === false) {
+      setLocalError('This room is not free for the complete stay. Nothing was sent to Cloudbeds.');
+      return;
+    }
+
+    const result = await run(() => assignRoom(selected.id, {
       propertyId: selected.propertyId,
       newRoomId,
       oldRoomId: selectedAssignment?.roomId || selected.roomId,
-      roomTypeId: targetRoom.roomTypeId,
+      roomTypeId: targetRoom?.roomTypeId || undefined,
       subReservationId: selectedAssignment?.subReservationId || undefined,
       reservationRoomId: selectedAssignment?.reservationRoomId || undefined,
       adjustPrice,
-    }), `Room ${targetRoom.roomNumber || targetRoom.id} assigned and verified in Cloudbeds.`);
+    }));
+    if (!result) return;
+
+    const verifiedRoom = result.room || targetRoom || rooms.find((room) => String(room.id) === String(newRoomId));
+    const verifiedAssignments = result.verification?.assignments || [];
+    const verifiedReservation = result.verification?.data || details?.reservation || {};
+    setNewRoomId(String(result.room?.id || newRoomId));
+    setDetails((current) => ({
+      ...(current || {}),
+      reservation: verifiedReservation,
+      assignments: verifiedAssignments.length ? verifiedAssignments : current?.assignments || [],
+    }));
+    setLocalNotice(`Room ${verifiedRoom?.roomNumber || newRoomId} is assigned and verified in Cloudbeds.`);
+
+    // Re-read the single reservation too. This is independent of the broader PMS
+    // snapshot and keeps the edit panel aligned with the physical Cloudbeds room.
+    try {
+      const response = await api.get(`/integrations/cloudbeds/operations/reservations/${selected.id}/details`, {
+        params: { propertyId: selected.propertyId, guestId: selected.guestId || undefined, _ts: Date.now() },
+      });
+      if (response.data?.data) setDetails(response.data.data);
+    } catch {
+      // The write was already verified server-side; a delayed detail read must not
+      // overwrite the verified success with stale UI data.
+    }
   };
   const saveGuest = () => {
     if (!selected?.guestId) return;
@@ -256,20 +302,21 @@ const BookingsPage = () => {
             <div className="flex items-start justify-between gap-3"><div><div className="text-lg font-black text-slate-950">{selected.guestName}</div><div className="mt-1 font-mono text-xs text-slate-500">{selected.id}</div></div><StatusBadge status={selected.status}/></div>
             {detailsLoading && <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700">Loading full Cloudbeds record…</div>}
             {detailsError && <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">{detailsError}</div>}
-            {(writeState.syncing || writeState.error || localNotice) && <div className={`rounded-xl border px-3 py-3 text-xs font-semibold ${writeState.error?'border-rose-200 bg-rose-50 text-rose-700':writeState.syncing?'border-blue-200 bg-blue-50 text-blue-700':'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>{writeState.error || (writeState.syncing ? 'Syncing and verifying with Cloudbeds…' : localNotice)}</div>}
+            {(writeState.syncing || writeState.error || localNotice || localError) && <div className={`rounded-xl border px-3 py-3 text-xs font-semibold ${(writeState.error||localError)?'border-rose-200 bg-rose-50 text-rose-700':writeState.syncing?'border-blue-200 bg-blue-50 text-blue-700':'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>{writeState.error || localError || (writeState.syncing ? 'Syncing and verifying with Cloudbeds…' : localNotice)}</div>}
 
             <section><div className="mb-2 text-xs font-black uppercase tracking-wide text-slate-500">Reservation status</div><div className="grid grid-cols-2 gap-2"><Action onClick={()=>changeStatus('confirmed')} disabled={writeState.syncing}>Confirm</Action><Action onClick={()=>changeStatus('in_house')} disabled={writeState.syncing} tone="blue">Check in</Action><Action onClick={()=>changeStatus('checked_out')} disabled={writeState.syncing} tone="green">Check out</Action><Action onClick={()=>changeStatus('no_show')} disabled={writeState.syncing}>No show</Action><button onClick={()=>changeStatus('cancelled')} disabled={writeState.syncing || selected.status==='cancelled'} className="col-span-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm font-bold text-rose-700 hover:bg-rose-100 disabled:opacity-40">Cancel reservation</button></div></section>
 
             <section className="border-t border-slate-100 pt-4"><div className="mb-3 flex items-center justify-between"><div><div className="text-xs font-black uppercase tracking-wide text-slate-500">Stay details</div><div className="mt-1 text-[11px] text-slate-500">Check-in and check-out can both be changed.</div></div>{availabilityLoading&&<span className="text-[11px] font-bold text-blue-600">Checking availability…</span>}</div><div className="grid grid-cols-2 gap-3"><Field label="Check-in"><input type="date" value={edit.startDate} onChange={(e)=>setEdit({...edit,startDate:e.target.value})} className={inputClass}/></Field><Field label="Check-out"><input type="date" min={edit.startDate} value={edit.endDate} onChange={(e)=>setEdit({...edit,endDate:e.target.value})} className={inputClass}/></Field><Field label="Arrival time"><input type="time" value={edit.arrivalTime} onChange={(e)=>setEdit({...edit,arrivalTime:e.target.value})} className={inputClass}/></Field><div/><Field label="Adults"><input min="1" type="number" value={edit.adults} onChange={(e)=>setEdit({...edit,adults:Number(e.target.value)})} className={inputClass}/></Field><Field label="Children"><input min="0" type="number" value={edit.children} onChange={(e)=>setEdit({...edit,children:Number(e.target.value)})} className={inputClass}/></Field></div>
               {availability?.roomAvailable===false && <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs font-semibold text-rose-800">The currently selected room conflicts with these dates. Change room or dates before saving.{(availability.conflicts||[]).map((conflict)=><div key={conflict.reservationId} className="mt-1 font-normal">{conflict.guestName}: {conflict.startDate} → {conflict.endDate} · #{conflict.reservationId}</div>)}</div>}
-              <button onClick={saveStay} disabled={writeState.syncing || availabilityLoading || availability?.roomAvailable===false || !edit.startDate || !edit.endDate || edit.startDate>=edit.endDate} className="mt-3 w-full rounded-xl bg-slate-950 px-3 py-3 text-sm font-black text-white hover:bg-slate-900 disabled:opacity-40">Save stay to Cloudbeds</button>
+              <button onClick={saveStay} disabled={writeState.syncing || availabilityLoading || !edit.startDate || !edit.endDate || edit.startDate>=edit.endDate} className="mt-3 w-full rounded-xl bg-slate-950 px-3 py-3 text-sm font-black text-white hover:bg-slate-900 disabled:opacity-40">Save stay to Cloudbeds</button>
             </section>
 
-            <section className="border-t border-slate-100 pt-4"><div className="mb-3 flex items-center justify-between"><div><div className="text-xs font-black uppercase tracking-wide text-slate-500">Room assignment</div><div className="mt-1 text-[11px] text-slate-500">Only rooms free for the whole edited stay are listed.</div></div><button onClick={()=>navigate(`/calendar?date=${edit.startDate || selected.arrivalDate}`)} className="text-xs font-bold text-blue-700">View calendar</button></div>
-              <select value={newRoomId} onChange={(e)=>setNewRoomId(e.target.value)} className={inputClass}><option value="">Unassigned / choose room</option>{roomOptions.map((room)=><option key={room.id} value={room.id}>{room.roomNumber || room.id} · {room.roomType || 'Room'}</option>)}</select>
+            <section className="border-t border-slate-100 pt-4"><div className="mb-3 flex items-center justify-between"><div><div className="text-xs font-black uppercase tracking-wide text-slate-500">Room assignment</div><div className="mt-1 text-[11px] text-slate-500">All live physical rooms are listed. Cloudbeds availability is checked before the write and again on the server.</div></div><button onClick={()=>navigate(`/calendar?date=${edit.startDate || selected.arrivalDate}`)} className="text-xs font-bold text-blue-700">View calendar</button></div>
+              <select value={newRoomId} onChange={(e)=>{setNewRoomId(e.target.value);setLocalError('');setLocalNotice('');}} className={inputClass}><option value="">Unassigned / choose room</option>{roomOptions.map((room)=><option key={room.id} value={room.id}>{room.roomNumber || room.id} · {room.roomType || 'Room'}</option>)}</select>
               {newRoomId && availability && <div className={`mt-2 rounded-lg px-3 py-2 text-xs font-semibold ${targetAvailable===false?'bg-rose-50 text-rose-700':'bg-emerald-50 text-emerald-700'}`}>{targetAvailable===false?'Selected room is not free for this complete stay.':'Selected room passes the current Cloudbeds conflict check.'}</div>}
+              {targetAvailable===false && (availability?.conflicts||[]).length>0 && <div className="mt-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">{availability.conflicts.map((conflict)=><div key={conflict.reservationId}>{conflict.guestName}: {conflict.startDate} → {conflict.endDate} · #{conflict.reservationId}</div>)}</div>}
               <label className="mt-3 flex items-center gap-2 text-xs font-semibold text-slate-600"><input type="checkbox" checked={adjustPrice} onChange={(e)=>setAdjustPrice(e.target.checked)} className="h-4 w-4"/>Allow Cloudbeds to adjust room price when room type changes</label>
-              <button onClick={saveRoomAssignment} disabled={writeState.syncing || availabilityLoading || !newRoomId || !targetRoom || targetAvailable===false || String(newRoomId)===String(selectedAssignment?.roomId || selected.roomId)} className="mt-3 w-full rounded-xl bg-blue-600 px-3 py-3 text-sm font-black text-white hover:bg-blue-700 disabled:opacity-40">Assign room & verify</button>
+              <button onClick={saveRoomAssignment} disabled={writeState.syncing || availabilityLoading || !newRoomId || targetAvailable===false || String(newRoomId)===currentAssignedRoomId} className="mt-3 w-full rounded-xl bg-blue-600 px-3 py-3 text-sm font-black text-white hover:bg-blue-700 disabled:opacity-40">Assign room & verify</button>
             </section>
 
             <section className="border-t border-slate-100 pt-4"><div className="mb-3 text-xs font-black uppercase tracking-wide text-slate-500">Guest Experience</div><button onClick={sendInstructions} disabled={sendingInstructions || !selected.guestEmail || selected.status==='cancelled'} className="w-full rounded-xl bg-sky-600 px-4 py-3 text-sm font-bold text-white hover:bg-sky-700 disabled:opacity-50">{sendingInstructions?'Sending…':'Send Instructions'}</button>{instructionError&&<div className="mt-2 text-xs font-semibold text-rose-700">{instructionError}</div>}{instructionResult&&<div className="mt-3 rounded-xl border border-sky-200 bg-sky-50 p-3"><div className="text-xs font-bold text-sky-900">{instructionResult.emailSent?'Email sent successfully.':'Secure portal link created.'}</div><div className="mt-2 break-all text-[10px] text-slate-500">{instructionResult.portalUrl}</div><button onClick={copyPortalLink} className="mt-2 rounded-lg border border-sky-300 bg-white px-3 py-2 text-xs font-bold text-sky-700">Copy link</button></div>}</section>
