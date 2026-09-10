@@ -1,653 +1,90 @@
-import React, { useContext, useMemo, useState } from 'react';
-import { CloudbedsDataContext } from '../context/CloudbedsDataContext';
-import {
-  getPropertyById,
-} from '../utils/semOperationsMetrics';
+import React, { useContext, useEffect, useMemo, useState } from 'react';
+import { AuthContext } from '../context/AuthContext';
+import api from '../services/api';
+import { EmptyState, MetricCard, PageHeader, Panel, StatusBadge, TableShell, Td, Th } from '../components/PmsUi';
 
-const drivers = [
-  'Nikos',
-  'Dimitris',
-  'Alexandros',
-  'External Partner',
-];
-
-const vehicles = [
-  'Mercedes V-Class',
-  'BMW X5',
-  'Mercedes Sprinter',
-  'Tesla Model Y',
-];
+const blankForm = { guestName: '', guestPhone: '', transferType: 'airport_pickup', pickupLocation: '', destination: '', scheduledAt: '', passengers: 1, luggage: 0, flightInfo: '', driver: '', vehicle: '', notes: '' };
+const editRoles = ['admin', 'management', 'reception', 'dispatcher'];
 
 const ShuttlePage = () => {
-  const { reservations, properties } = useContext(CloudbedsDataContext);
-  const initialShuttleRequests = [];
-  const [shuttleRequests, setShuttleRequests] = useState(initialShuttleRequests);
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [selectedRequestId, setSelectedRequestId] = useState(
-    initialShuttleRequests[0]?.id || null
-  );
+  const { user } = useContext(AuthContext);
+  const role = String(user?.role || '').toLowerCase();
+  const canEdit = editRoles.includes(role);
+  const [rows, setRows] = useState([]);
+  const [filter, setFilter] = useState('all');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState(blankForm);
+  const [saving, setSaving] = useState(false);
 
-  const enrichedRequests = useMemo(() => {
-    return shuttleRequests.map((request) => {
-      const reservation = reservations.find(
-        (item) => item.id === request.reservationId
-      );
+  const load = async () => {
+    setLoading(true); setError('');
+    try { const { data } = await api.get('/management/transfers'); setRows(Array.isArray(data) ? data : []); }
+    catch (e) { setError(e.response?.data?.error || e.message); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
 
-      const property = reservation
-        ? getPropertyById(properties, reservation.propertyId)
-        : null;
+  const filtered = useMemo(() => filter === 'all' ? rows : rows.filter((r) => r.status === filter), [rows, filter]);
+  const counts = useMemo(() => ({
+    total: rows.length,
+    unassigned: rows.filter((r) => r.status === 'unassigned').length,
+    active: rows.filter((r) => ['scheduled', 'on_the_way'].includes(r.status)).length,
+    completed: rows.filter((r) => r.status === 'completed').length,
+  }), [rows]);
 
-      return {
-        ...request,
-        reservation,
-        property,
-        riskLevel: calculateShuttleRisk(request, reservation),
-      };
-    });
-  }, [shuttleRequests]);
-
-  const filteredRequests = enrichedRequests.filter((request) => {
-    if (statusFilter === 'all') return true;
-    if (statusFilter === 'critical') return request.riskLevel === 'critical';
-    return request.status === statusFilter;
-  });
-
-  const selectedRequest =
-    enrichedRequests.find((request) => request.id === selectedRequestId) ||
-    enrichedRequests[0];
-
-  const summary = {
-    total: enrichedRequests.length,
-    open: enrichedRequests.filter((request) => request.status !== 'completed').length,
-    unassigned: enrichedRequests.filter((request) => request.status === 'unassigned').length,
-    scheduled: enrichedRequests.filter((request) => request.status === 'scheduled').length,
-    completed: enrichedRequests.filter((request) => request.status === 'completed').length,
-    critical: enrichedRequests.filter((request) => request.riskLevel === 'critical').length,
+  const createTransfer = async (e) => {
+    e.preventDefault(); setSaving(true); setError('');
+    try { await api.post('/management/transfers', form); setForm(blankForm); setShowForm(false); await load(); }
+    catch (err) { setError(err.response?.data?.error || err.message); }
+    finally { setSaving(false); }
   };
 
-  const updateRequest = (requestId, updates) => {
-    setShuttleRequests((currentRequests) =>
-      currentRequests.map((request) =>
-        request.id === requestId
-          ? {
-              ...request,
-              ...updates,
-            }
-          : request
-      )
-    );
+  const update = async (id, patch) => {
+    try { const { data } = await api.patch(`/management/transfers/${id}`, patch); setRows((current) => current.map((r) => String(r.id) === String(id) ? data : r)); }
+    catch (err) { setError(err.response?.data?.error || err.message); }
   };
 
-  return (
-    <div className="space-y-8">
-      <section className="relative overflow-hidden rounded-[2rem] border border-[#C9A46A]/20 bg-[#111110] shadow-[0_24px_80px_rgba(0,0,0,0.35)]">
-        <div className="absolute inset-0 opacity-[0.045] bg-[radial-gradient(circle_at_1px_1px,#ffffff_1px,transparent_0)] [background-size:24px_24px]" />
-        <div className="absolute right-[-140px] top-[-140px] h-[420px] w-[420px] rounded-full bg-[#C9A46A]/15 blur-3xl" />
+  return <div className="space-y-6">
+    <PageHeader title="Transfers" description="Airport, port and private transfers with live dispatch status, driver and vehicle assignment." actions={<div className="flex gap-2"><button onClick={load} className="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Refresh</button>{canEdit && <button onClick={() => setShowForm((v) => !v)} className="rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-blue-700">{showForm ? 'Close' : 'New transfer'}</button>}</div>} />
 
-        <div className="relative grid grid-cols-1 xl:grid-cols-[1.15fr_0.85fr] gap-8 p-8 xl:p-10">
-          <div>
-            <div className="inline-flex rounded-full border border-[#C9A46A]/25 bg-[#C9A46A]/8 px-4 py-2">
-              <span className="text-[10px] uppercase tracking-[0.32em] text-[#C9A46A] font-bold">
-                Shuttle Operations · Phase C
-              </span>
-            </div>
+    {error && <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
 
-            <h1 className="mt-8 max-w-4xl text-5xl xl:text-6xl font-semibold tracking-[-0.055em] leading-[0.95] text-white">
-              Airport transfers,
-              <span className="block text-[#C9A46A]">assigned before risk.</span>
-            </h1>
-
-            <p className="mt-7 max-w-2xl text-base leading-8 text-[#BEB7AD]">
-              Control shuttle requests, flight details, drivers, vehicles, guest notes
-              and transfer status from one operational dispatch board.
-            </p>
-
-            <div className="mt-10 grid grid-cols-1 md:grid-cols-4 gap-3">
-              <HeroMetric label="Total requests" value={summary.total} />
-              <HeroMetric label="Open" value={summary.open} tone={summary.open ? 'warning' : 'good'} />
-              <HeroMetric label="Unassigned" value={summary.unassigned} tone={summary.unassigned ? 'critical' : 'good'} />
-              <HeroMetric label="Completed" value={summary.completed} tone="good" />
-            </div>
-          </div>
-
-          <div className="rounded-[1.5rem] border border-white/10 bg-[#090909]/70 p-6 backdrop-blur">
-            <div className="flex items-start justify-between border-b border-white/[0.06] pb-5">
-              <div>
-                <div className="text-[10px] uppercase tracking-[0.28em] text-[#8F8A82]">
-                  Dispatch control
-                </div>
-                <div className="mt-2 text-xl font-semibold text-white">
-                  {summary.critical} transfer risks
-                </div>
-              </div>
-
-              <StatusPill status={summary.critical ? 'Critical' : 'Stable'} />
-            </div>
-
-            <div className="mt-6 space-y-4">
-              <BriefRow label="Scheduled routes" value={summary.scheduled} />
-              <BriefRow label="Missing driver" value={summary.unassigned} />
-              <BriefRow label="Completed transfers" value={summary.completed} />
-              <BriefRow label="Active vehicles" value={vehicles.length} />
-            </div>
-
-            <div className="mt-7 rounded-2xl border border-[#C9A46A]/15 bg-[#C9A46A]/8 p-5">
-              <div className="text-[10px] uppercase tracking-[0.26em] text-[#C9A46A] font-bold">
-                Dispatcher next action
-              </div>
-              <p className="mt-3 text-sm leading-6 text-[#E8E1D5]">
-                Assign driver and vehicle to all unassigned airport pickups before
-                Reception sends final shuttle information to the guest.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
-        <OperationsCard
-          label="Open shuttle requests"
-          value={summary.open}
-          description="Transfers that still require operational monitoring"
-        />
-        <OperationsCard
-          label="Unassigned"
-          value={summary.unassigned}
-          description="Requests without confirmed driver or vehicle"
-        />
-        <OperationsCard
-          label="Scheduled"
-          value={summary.scheduled}
-          description="Routes assigned and ready for driver execution"
-        />
-        <OperationsCard
-          label="Completed"
-          value={summary.completed}
-          description="Transfers marked as completed by operations"
-        />
-      </section>
-
-      <section className="grid grid-cols-1 xl:grid-cols-[1fr_430px] gap-6">
-        <div className="rounded-[1.75rem] border border-white/[0.07] bg-[#161615] overflow-hidden">
-          <div className="space-y-5 px-6 py-5 border-b border-white/[0.05]">
-            <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
-              <div>
-                <div className="text-[10px] uppercase tracking-[0.28em] text-[#C9A46A] font-bold">
-                  Dispatch board
-                </div>
-                <h2 className="mt-2 text-xl font-semibold text-white tracking-[-0.02em]">
-                  Shuttle requests
-                </h2>
-              </div>
-
-              <button className="rounded-full border border-[#C9A46A]/25 px-4 py-2 text-[10px] uppercase tracking-[0.22em] text-[#C9A46A] hover:bg-[#C9A46A]/10 transition-all">
-                New shuttle request
-              </button>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <FilterButton active={statusFilter === 'all'} onClick={() => setStatusFilter('all')}>
-                All
-              </FilterButton>
-              <FilterButton active={statusFilter === 'critical'} onClick={() => setStatusFilter('critical')}>
-                Critical
-              </FilterButton>
-              <FilterButton active={statusFilter === 'unassigned'} onClick={() => setStatusFilter('unassigned')}>
-                Unassigned
-              </FilterButton>
-              <FilterButton active={statusFilter === 'scheduled'} onClick={() => setStatusFilter('scheduled')}>
-                Scheduled
-              </FilterButton>
-              <FilterButton active={statusFilter === 'completed'} onClick={() => setStatusFilter('completed')}>
-                Completed
-              </FilterButton>
-            </div>
-          </div>
-
-          <div className="divide-y divide-white/[0.05]">
-            {filteredRequests.map((request) => (
-              <ShuttleRow
-                key={request.id}
-                request={request}
-                active={selectedRequest?.id === request.id}
-                onSelect={() => setSelectedRequestId(request.id)}
-                onUpdate={updateRequest}
-              />
-            ))}
-
-            {filteredRequests.length === 0 && (
-              <div className="p-10 text-center">
-                <div className="text-base font-semibold text-white">
-                  No shuttle requests found.
-                </div>
-                <p className="mt-3 text-sm text-[#8F8A82]">
-                  Change filter to view more transfer requests.
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {selectedRequest && (
-          <ShuttleDetailPanel
-            request={selectedRequest}
-            onUpdate={updateRequest}
-          />
-        )}
-      </section>
-
-      <section className="rounded-[1.75rem] border border-white/[0.07] bg-[#161615] overflow-hidden">
-        <SectionHeader
-          eyebrow="Drivers"
-          title="Driver and vehicle workload"
-          action="Manage"
-        />
-
-        <div className="grid grid-cols-1 xl:grid-cols-4 border-t border-white/[0.05]">
-          {drivers.map((driver) => {
-            const assigned = enrichedRequests.filter(
-              (request) => request.driver === driver
-            );
-
-            return (
-              <DriverCard
-                key={driver}
-                driver={driver}
-                assigned={assigned}
-              />
-            );
-          })}
-        </div>
-      </section>
+    <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+      <MetricCard label="Total" value={counts.total} />
+      <MetricCard label="Unassigned" value={counts.unassigned} tone={counts.unassigned ? 'amber' : 'green'} />
+      <MetricCard label="Active" value={counts.active} tone="blue" />
+      <MetricCard label="Completed" value={counts.completed} tone="green" />
     </div>
-  );
+
+    {showForm && canEdit && <Panel title="New transfer" description="Create a booking-linked or manual transfer request."><form onSubmit={createTransfer} className="grid gap-4 p-5 md:grid-cols-2 xl:grid-cols-4">
+      <Field label="Guest name" required value={form.guestName} onChange={(v) => setForm({...form, guestName:v})} />
+      <Field label="Phone" value={form.guestPhone} onChange={(v) => setForm({...form, guestPhone:v})} />
+      <Field label="Pickup" required value={form.pickupLocation} onChange={(v) => setForm({...form, pickupLocation:v})} />
+      <Field label="Destination" required value={form.destination} onChange={(v) => setForm({...form, destination:v})} />
+      <Field label="Date & time" type="datetime-local" required value={form.scheduledAt} onChange={(v) => setForm({...form, scheduledAt:v})} />
+      <Field label="Flight / ferry info" value={form.flightInfo} onChange={(v) => setForm({...form, flightInfo:v})} />
+      <Field label="Driver" value={form.driver} onChange={(v) => setForm({...form, driver:v})} />
+      <Field label="Vehicle" value={form.vehicle} onChange={(v) => setForm({...form, vehicle:v})} />
+      <Field label="Passengers" type="number" min="1" value={form.passengers} onChange={(v) => setForm({...form, passengers:v})} />
+      <Field label="Luggage" type="number" min="0" value={form.luggage} onChange={(v) => setForm({...form, luggage:v})} />
+      <label className="md:col-span-2 xl:col-span-4"><span className="mb-1.5 block text-xs font-semibold text-slate-600">Notes</span><textarea value={form.notes} onChange={(e)=>setForm({...form,notes:e.target.value})} className="min-h-20 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500" /></label>
+      <div className="md:col-span-2 xl:col-span-4 flex justify-end"><button disabled={saving} className="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">{saving ? 'Saving…' : 'Create transfer'}</button></div>
+    </form></Panel>}
+
+    <Panel title="Dispatch board" description="Status changes are stored in MariaDB and shared between Reception, Dispatcher, Management and Drivers." action={<select value={filter} onChange={(e)=>setFilter(e.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"><option value="all">All statuses</option><option value="unassigned">Unassigned</option><option value="scheduled">Scheduled</option><option value="on_the_way">On the way</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select>}>
+      {loading ? <div className="p-8 text-sm text-slate-500">Loading transfers…</div> : filtered.length === 0 ? <EmptyState title="No transfers found" description="Create the first transfer or change the status filter." /> : <TableShell><thead><tr><Th>When</Th><Th>Guest</Th><Th>Route</Th><Th>Flight</Th><Th>Driver / vehicle</Th><Th>Status</Th><Th>Action</Th></tr></thead><tbody className="divide-y divide-slate-100">{filtered.map((r)=><tr key={r.id} className="hover:bg-slate-50/70"><Td><div className="whitespace-nowrap font-semibold text-slate-900">{formatDateTime(r.scheduled_at)}</div><div className="text-xs text-slate-500">{r.passengers} pax · {r.luggage} bags</div></Td><Td><div className="font-semibold text-slate-900">{r.guest_name}</div><div className="text-xs text-slate-500">{r.guest_phone || '—'}</div></Td><Td><div className="max-w-64 text-sm"><b>{r.pickup_location}</b><span className="mx-1 text-slate-400">→</span>{r.destination}</div></Td><Td>{r.flight_info || '—'}</Td><Td><div>{r.driver || 'Unassigned'}</div><div className="text-xs text-slate-500">{r.vehicle || 'No vehicle'}</div></Td><Td><StatusBadge status={r.status}/></Td><Td><StatusControl row={r} role={role} canEdit={canEdit} onUpdate={update}/></Td></tr>)}</tbody></TableShell>}
+    </Panel>
+  </div>;
 };
 
-const ShuttleRow = ({ request, active, onSelect, onUpdate }) => {
-  const nextStatus = getNextShuttleStatus(request.status);
-
-  return (
-    <button
-      onClick={onSelect}
-      className={[
-        'w-full text-left px-6 py-5 transition-all',
-        active ? 'bg-[#C9A46A]/8' : 'hover:bg-white/[0.025]',
-      ].join(' ')}
-    >
-      <div className="grid grid-cols-1 2xl:grid-cols-[1fr_160px_170px_170px_160px] gap-5 items-start 2xl:items-center">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <StatusPill status={request.riskLevel} />
-            <StatusPill status={request.status} />
-            <StatusPill status={request.flightInfo ? 'flight info' : 'flight missing'} />
-          </div>
-
-          <div className="mt-4 text-lg font-semibold text-white">
-            {request.guestName}
-          </div>
-
-          <div className="mt-1 text-sm text-[#8F8A82]">
-            {request.id} · {request.pickupLocation} to {request.dropoffLocation}
-          </div>
-
-          <p className="mt-3 text-sm leading-6 text-[#BEB7AD]">
-            {request.notes || 'No shuttle notes.'}
-          </p>
-        </div>
-
-        <SmallInfo label="Pickup" value={request.pickupTime} />
-        <SmallInfo label="Driver" value={request.driver || 'Unassigned'} />
-        <SmallInfo label="Vehicle" value={request.vehicle || 'Unassigned'} />
-
-        <div onClick={(event) => event.stopPropagation()}>
-          {request.status !== 'completed' ? (
-            <button
-              onClick={() => onUpdate(request.id, { status: nextStatus })}
-              className="w-full rounded-2xl bg-[#C9A46A] px-5 py-3 text-[10px] font-bold uppercase tracking-[0.2em] text-[#090909] transition-all hover:bg-[#D7B984]"
-            >
-              Mark {formatStatus(nextStatus)}
-            </button>
-          ) : (
-            <StatusPill status="Completed" />
-          )}
-        </div>
-      </div>
-    </button>
-  );
+const Field = ({ label, value, onChange, type='text', required=false, min }) => <label><span className="mb-1.5 block text-xs font-semibold text-slate-600">{label}</span><input type={type} required={required} min={min} value={value} onChange={(e)=>onChange(e.target.value)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" /></label>;
+const StatusControl = ({ row, role, canEdit, onUpdate }) => {
+  const driver = role === 'driver';
+  if (!canEdit && !driver) return <span className="text-xs text-slate-400">Read only</span>;
+  const options = driver ? ['on_the_way','completed','cancelled'] : ['unassigned','scheduled','on_the_way','completed','cancelled'];
+  return <select value={row.status} onChange={(e)=>onUpdate(row.id,{status:e.target.value})} className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs">{options.map((s)=><option key={s} value={s}>{s.replaceAll('_',' ')}</option>)}</select>;
 };
-
-const ShuttleDetailPanel = ({ request, onUpdate }) => {
-  const [driver, setDriver] = useState(request.driver || '');
-  const [vehicle, setVehicle] = useState(request.vehicle || '');
-  const [pickupTime, setPickupTime] = useState(request.pickupTime || '');
-  const [flightInfo, setFlightInfo] = useState(request.flightInfo || '');
-  const [notes, setNotes] = useState(request.notes || '');
-
-  const saveDispatchDetails = () => {
-    onUpdate(request.id, {
-      driver: driver || null,
-      vehicle: vehicle || null,
-      pickupTime,
-      flightInfo: flightInfo || null,
-      notes,
-      status: driver && vehicle && request.status === 'unassigned'
-        ? 'scheduled'
-        : request.status,
-    });
-  };
-
-  return (
-    <aside className="rounded-[1.75rem] border border-white/[0.07] bg-[#161615] overflow-hidden">
-      <div className="px-6 py-5 border-b border-white/[0.05]">
-        <div className="text-[10px] uppercase tracking-[0.28em] text-[#C9A46A] font-bold">
-          Shuttle detail
-        </div>
-
-        <h2 className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-white">
-          {request.guestName}
-        </h2>
-
-        <div className="mt-3 flex flex-wrap gap-2">
-          <StatusPill status={request.status} />
-          <StatusPill status={request.riskLevel} />
-          <StatusPill status={request.flightInfo ? 'flight info' : 'flight missing'} />
-        </div>
-      </div>
-
-      <div className="p-6 space-y-6">
-        <div className="grid grid-cols-2 gap-3">
-          <DetailBox label="Request ID" value={request.id} />
-          <DetailBox label="Booking" value={request.reservationId || 'Manual'} />
-          <DetailBox label="Passengers" value={request.passengers} />
-          <DetailBox label="Luggage" value={request.luggage} />
-        </div>
-
-        <div className="rounded-2xl border border-white/[0.06] bg-[#090909]/60 p-5">
-          <div className="text-[10px] uppercase tracking-[0.24em] text-[#C9A46A] font-bold">
-            Dispatch assignment
-          </div>
-
-          <div className="mt-5 space-y-4">
-            <Field label="Pickup time" value={pickupTime} onChange={setPickupTime} />
-            <Field label="Flight info" value={flightInfo} onChange={setFlightInfo} />
-
-            <div>
-              <label className="block text-[10px] uppercase tracking-[0.22em] text-[#8F8A82] mb-2">
-                Driver
-              </label>
-              <select
-                value={driver}
-                onChange={(event) => setDriver(event.target.value)}
-                className="w-full rounded-2xl border border-white/10 bg-[#111110] px-4 py-3 text-sm text-white outline-none focus:border-[#C9A46A]/40"
-              >
-                <option value="">Unassigned</option>
-                {drivers.map((item) => (
-                  <option key={item} value={item}>{item}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-[10px] uppercase tracking-[0.22em] text-[#8F8A82] mb-2">
-                Vehicle
-              </label>
-              <select
-                value={vehicle}
-                onChange={(event) => setVehicle(event.target.value)}
-                className="w-full rounded-2xl border border-white/10 bg-[#111110] px-4 py-3 text-sm text-white outline-none focus:border-[#C9A46A]/40"
-              >
-                <option value="">Unassigned</option>
-                {vehicles.map((item) => (
-                  <option key={item} value={item}>{item}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-[10px] uppercase tracking-[0.22em] text-[#8F8A82] mb-2">
-                Shuttle notes
-              </label>
-              <textarea
-                value={notes}
-                onChange={(event) => setNotes(event.target.value)}
-                rows={4}
-                className="w-full resize-none rounded-2xl border border-white/10 bg-[#111110] px-4 py-3 text-sm text-white outline-none placeholder:text-[#6F6B66] focus:border-[#C9A46A]/40"
-              />
-            </div>
-
-            <button
-              onClick={saveDispatchDetails}
-              className="w-full rounded-2xl bg-[#C9A46A] px-5 py-4 text-sm font-bold uppercase tracking-[0.2em] text-[#090909] transition-all hover:bg-[#D7B984]"
-            >
-              Save dispatch details
-            </button>
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-white/[0.06] bg-[#090909]/60 p-5">
-          <div className="text-[10px] uppercase tracking-[0.24em] text-[#C9A46A] font-bold">
-            Route
-          </div>
-
-          <div className="mt-5 space-y-4">
-            <RouteLine label="Pickup" value={request.pickupLocation} />
-            <RouteLine label="Drop-off" value={request.dropoffLocation} />
-            <RouteLine label="Property" value={request.property?.name || 'No linked property'} />
-          </div>
-        </div>
-      </div>
-    </aside>
-  );
-};
-
-const DriverCard = ({ driver, assigned }) => (
-  <div className="border-b border-white/[0.05] p-6 xl:border-b-0 xl:border-r last:border-r-0">
-    <div className="flex items-start justify-between gap-4">
-      <div>
-        <div className="text-lg font-semibold text-white">
-          {driver}
-        </div>
-        <div className="mt-1 text-xs uppercase tracking-[0.22em] text-[#8F8A82]">
-          {assigned.length} assigned routes
-        </div>
-      </div>
-
-      <StatusPill status={assigned.length > 2 ? 'High load' : 'Available'} />
-    </div>
-
-    <div className="mt-5 space-y-3">
-      {assigned.length > 0 ? (
-        assigned.map((request) => (
-          <div
-            key={request.id}
-            className="rounded-2xl border border-white/[0.06] bg-[#090909]/60 p-4"
-          >
-            <div className="text-sm font-semibold text-white">
-              {request.pickupTime} · {request.guestName}
-            </div>
-            <div className="mt-1 text-xs text-[#8F8A82]">
-              {request.vehicle || 'Vehicle not assigned'}
-            </div>
-          </div>
-        ))
-      ) : (
-        <div className="rounded-2xl border border-white/[0.06] bg-[#090909]/60 p-4 text-sm text-[#8F8A82]">
-          No routes assigned.
-        </div>
-      )}
-    </div>
-  </div>
-);
-
-const RouteLine = ({ label, value }) => (
-  <div className="flex items-start justify-between gap-4">
-    <span className="text-sm text-[#9E978E]">{label}</span>
-    <span className="max-w-[220px] text-right text-sm font-semibold text-white">
-      {value}
-    </span>
-  </div>
-);
-
-const Field = ({ label, value, onChange }) => (
-  <div>
-    <label className="block text-[10px] uppercase tracking-[0.22em] text-[#8F8A82] mb-2">
-      {label}
-    </label>
-    <input
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-      className="w-full rounded-2xl border border-white/10 bg-[#111110] px-4 py-3 text-sm text-white outline-none placeholder:text-[#6F6B66] focus:border-[#C9A46A]/40"
-    />
-  </div>
-);
-
-const HeroMetric = ({ label, value, tone }) => (
-  <div className="rounded-2xl border border-white/[0.07] bg-[#090909]/60 px-5 py-4">
-    <div className="text-[10px] uppercase tracking-[0.24em] text-[#8F8A82]">
-      {label}
-    </div>
-    <div
-      className={[
-        'mt-2 text-sm font-semibold',
-        tone === 'critical' ? 'text-[#F0D6A5]' : tone === 'warning' ? 'text-[#D9B381]' : tone === 'good' ? 'text-[#C9A46A]' : 'text-white',
-      ].join(' ')}
-    >
-      {value}
-    </div>
-  </div>
-);
-
-const BriefRow = ({ label, value }) => (
-  <div className="flex items-center justify-between">
-    <span className="text-sm text-[#9E978E]">{label}</span>
-    <span className="text-xl font-semibold text-white">{value}</span>
-  </div>
-);
-
-const OperationsCard = ({ label, value, description }) => (
-  <div className="rounded-[1.5rem] border border-white/[0.07] bg-[#161615] p-6 transition-all duration-300 hover:-translate-y-1 hover:border-[#C9A46A]/30">
-    <div className="text-[10px] uppercase tracking-[0.26em] text-[#8F8A82] font-bold">
-      {label}
-    </div>
-    <div className="mt-8 text-5xl font-semibold tracking-[-0.06em] text-white">
-      {value}
-    </div>
-    <p className="mt-5 text-sm leading-6 text-[#9E978E]">
-      {description}
-    </p>
-  </div>
-);
-
-const SectionHeader = ({ eyebrow, title, action }) => (
-  <div className="flex items-center justify-between px-6 py-5">
-    <div>
-      <div className="text-[10px] uppercase tracking-[0.28em] text-[#C9A46A] font-bold">
-        {eyebrow}
-      </div>
-      <h2 className="mt-2 text-xl font-semibold text-white tracking-[-0.02em]">
-        {title}
-      </h2>
-    </div>
-
-    <button className="rounded-full border border-white/10 px-4 py-2 text-[10px] uppercase tracking-[0.22em] text-[#BEB7AD] hover:border-[#C9A46A]/35 hover:text-white transition-all">
-      {action}
-    </button>
-  </div>
-);
-
-const FilterButton = ({ active, onClick, children }) => (
-  <button
-    onClick={onClick}
-    className={[
-      'rounded-full border px-4 py-2 text-[10px] uppercase tracking-[0.22em] transition-all',
-      active
-        ? 'border-[#C9A46A]/40 bg-[#C9A46A]/10 text-[#C9A46A]'
-        : 'border-white/10 text-[#BEB7AD] hover:border-[#C9A46A]/30 hover:text-white',
-    ].join(' ')}
-  >
-    {children}
-  </button>
-);
-
-const SmallInfo = ({ label, value }) => (
-  <div>
-    <div className="text-[10px] uppercase tracking-[0.22em] text-[#8F8A82] mb-2">
-      {label}
-    </div>
-    <div className="text-sm font-semibold text-white">
-      {value || '—'}
-    </div>
-  </div>
-);
-
-const DetailBox = ({ label, value }) => (
-  <div className="rounded-2xl border border-white/[0.06] bg-[#111110] p-4">
-    <div className="text-[10px] uppercase tracking-[0.22em] text-[#8F8A82]">
-      {label}
-    </div>
-    <div className="mt-2 text-sm font-semibold text-white">
-      {value || '—'}
-    </div>
-  </div>
-);
-
-const StatusPill = ({ status }) => {
-  const normalized = String(status).toLowerCase();
-
-  const isCritical =
-    normalized.includes('critical') ||
-    normalized.includes('unassigned') ||
-    normalized.includes('missing') ||
-    normalized.includes('high');
-
-  const isWarning =
-    normalized.includes('scheduled') ||
-    normalized.includes('on the way') ||
-    normalized.includes('requested') ||
-    normalized.includes('medium');
-
-  const isGood =
-    normalized.includes('completed') ||
-    normalized.includes('stable') ||
-    normalized.includes('available') ||
-    normalized.includes('flight info');
-
-  const classes = isCritical
-    ? 'border-[#F0D6A5]/40 bg-[#F0D6A5]/12 text-[#F0D6A5]'
-    : isWarning
-      ? 'border-[#D9B381]/35 bg-[#D9B381]/10 text-[#D9B381]'
-      : isGood
-        ? 'border-[#C9A46A]/35 bg-[#C9A46A]/10 text-[#C9A46A]'
-        : 'border-white/10 bg-white/[0.04] text-[#BEB7AD]';
-
-  return (
-    <span className={`inline-flex items-center rounded-full border px-3 py-1 text-[10px] uppercase tracking-[0.16em] ${classes}`}>
-      {formatStatus(status)}
-    </span>
-  );
-};
-
-const calculateShuttleRisk = (request, reservation) => {
-  if (request.status === 'unassigned') return 'critical';
-  if (!request.driver || !request.vehicle) return 'critical';
-  if (!request.flightInfo) return 'medium';
-  if (reservation?.missingFields?.includes('arrivalTime')) return 'medium';
-  if (request.status === 'completed') return 'stable';
-
-  return 'controlled';
-};
-
-const getNextShuttleStatus = (status) => {
-  if (status === 'unassigned') return 'scheduled';
-  if (status === 'scheduled') return 'on_the_way';
-  if (status === 'on_the_way') return 'completed';
-  return 'completed';
-};
-
-const formatStatus = (status) => {
-  return String(status)
-    .replaceAll('_', ' ')
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
-};
-
+const formatDateTime = (v) => v ? new Intl.DateTimeFormat('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}).format(new Date(v)) : '—';
 export default ShuttlePage;
