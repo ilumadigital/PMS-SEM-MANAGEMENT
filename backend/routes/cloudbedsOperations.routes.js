@@ -63,11 +63,41 @@ router.get('/reservations/:reservationId/details', protect, restrictTo(...READ_R
 router.post('/reservations', protect, restrictTo(...CREATE_ROLES), async (req, res) => {
     try {
         const data = await operations.createReservation(req.body || {}, actor(req));
+        const requestedRoomId = req.body?.roomId || req.body?.roomID;
+
+        // postReservation creates the booking at room-type level. Always run the
+        // deterministic physical-room verifier afterwards so Front Desk never gets
+        // a false success for a booking that stayed unassigned in Cloudbeds.
+        if (data?.reservationId && requestedRoomId) {
+            try {
+                const ensuredAssignment = await roomAssignments.assignRoom(
+                    data.reservationId,
+                    {
+                        ...(req.body || {}),
+                        newRoomId: requestedRoomId,
+                        roomTypeId: req.body?.roomTypeId || req.body?.roomTypeID,
+                    },
+                    actor(req)
+                );
+                data.assignment = ensuredAssignment;
+                data.assignmentError = null;
+                data.partial = false;
+            } catch (assignmentError) {
+                data.partial = true;
+                data.assignmentError = {
+                    code: assignmentError.code || 'CLOUDBEDS_ROOM_ASSIGNMENT_NOT_APPLIED',
+                    message: assignmentError.message,
+                    requestId: assignmentError.requestId || null,
+                    details: assignmentError.details || null,
+                };
+            }
+        }
+
         res.status(201).json({
             success: true,
             message: data.partial
-                ? 'Reservation created in Cloudbeds, but physical room assignment requires attention.'
-                : 'Reservation created and assigned in Cloudbeds.',
+                ? 'Reservation was created in Cloudbeds, but the requested physical room was NOT verified. Assign a room before check-in.'
+                : 'Reservation created and physical room verified in Cloudbeds.',
             data,
         });
     } catch (error) { sendError(res, error); }
