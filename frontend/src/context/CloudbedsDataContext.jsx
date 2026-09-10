@@ -11,6 +11,8 @@ const localDateKey = () => {
   return `${year}-${month}-${day}`;
 };
 
+const sleep = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
 const buildDerivedData = (reservations) => {
   const propertyMap = new Map();
   const roomMap = new Map();
@@ -130,7 +132,8 @@ export const CloudbedsDataProvider = ({ children }) => {
   const refresh = useCallback(async () => {
     try {
       setError('');
-      const statusResponse = await api.get('/integrations/cloudbeds/status');
+      const cacheBust = Date.now();
+      const statusResponse = await api.get('/integrations/cloudbeds/status', { params: { _ts: cacheBust } });
       const nextStatus = statusResponse.data;
       setStatus(nextStatus);
 
@@ -141,11 +144,11 @@ export const CloudbedsDataProvider = ({ children }) => {
 
       let data;
       try {
-        const snapshotResponse = await api.get('/integrations/cloudbeds/snapshot');
+        const snapshotResponse = await api.get('/integrations/cloudbeds/snapshot', { params: { _ts: cacheBust } });
         data = snapshotResponse.data;
       } catch (snapshotError) {
         if (snapshotError.response?.status !== 404) throw snapshotError;
-        const reservationsResponse = await api.get('/integrations/cloudbeds/reservations');
+        const reservationsResponse = await api.get('/integrations/cloudbeds/reservations', { params: { _ts: cacheBust } });
         data = reservationsResponse.data;
       }
 
@@ -209,7 +212,17 @@ export const CloudbedsDataProvider = ({ children }) => {
       const response = await request();
       const result = response.data?.data ?? response.data;
       setWriteState({ syncing: false, operation, result, error: '' });
+
+      // Cloudbeds writes are verified by the API endpoint, but the PMS snapshot/webhook
+      // can trail the write for a short period. Re-read with cache busting and retry
+      // reservation writes so the UI cannot keep showing the previous room/dates.
       await refresh();
+      if (operation === 'reservation.room_assign' || operation === 'reservation.update') {
+        await sleep(700);
+        await refresh();
+        await sleep(1300);
+        await refresh();
+      }
       return result;
     } catch (requestError) {
       const message = requestError.response?.data?.message || requestError.message || 'Cloudbeds write-back failed.';
