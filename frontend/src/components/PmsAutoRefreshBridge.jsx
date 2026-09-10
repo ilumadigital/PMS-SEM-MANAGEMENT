@@ -2,7 +2,7 @@ import React, { useContext, useEffect, useRef } from 'react';
 import { CloudbedsDataContext } from '../context/CloudbedsDataContext';
 
 const PmsAutoRefreshBridge = ({ onRevision }) => {
-  const cloudbeds = useContext(CloudbedsDataContext);
+  const { refresh } = useContext(CloudbedsDataContext);
   const timersRef = useRef([]);
   const runningRef = useRef(false);
   const queuedRef = useRef(false);
@@ -21,7 +21,7 @@ const PmsAutoRefreshBridge = ({ onRevision }) => {
 
       runningRef.current = true;
       try {
-        await cloudbeds.refresh();
+        await refresh();
       } finally {
         runningRef.current = false;
         if (queuedRef.current) {
@@ -53,7 +53,7 @@ const PmsAutoRefreshBridge = ({ onRevision }) => {
       window.removeEventListener('focus', handleFocus);
       document.removeEventListener('visibilitychange', handleFocus);
     };
-  }, [cloudbeds, onRevision]);
+  }, [refresh, onRevision]);
 
   return null;
 };
