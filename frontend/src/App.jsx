@@ -6,6 +6,7 @@ import Login from './pages/Login';
 import AppShell from './components/AppShell';
 import DashboardPage from './pages/DashboardPage';
 import BookingsPage from './pages/BookingsPage';
+import CalendarPage from './pages/CalendarPage';
 import CustomersPage from './pages/CustomersPage';
 import RoomsPage from './pages/RoomsPage';
 import StatisticsPage from './pages/StatisticsPage';
@@ -29,13 +30,14 @@ const ProtectedRoutes = () => {
     <Route path="/" element={<AppShell />}>
       <Route index element={<Navigate to="/dashboard" replace />} />
       <Route path="dashboard" element={<Gate user={user} roles={ALL_STAFF}><DashboardPage /></Gate>} />
+      <Route path="reception" element={<Gate user={user} roles={['admin','management','reception']}><ReceptionDash /></Gate>} />
+      <Route path="calendar" element={<Gate user={user} roles={['admin','management','reception','supervisor']}><CalendarPage /></Gate>} />
       <Route path="bookings" element={<Gate user={user} roles={['admin','management','reception','supervisor']}><BookingsPage /></Gate>} />
       <Route path="guest-management" element={<Gate user={user} roles={['admin','management','reception','supervisor']}><GuestPortalAdminPage /></Gate>} />
       <Route path="customers" element={<Gate user={user} roles={['admin','management','reception']}><CustomersPage /></Gate>} />
       <Route path="rooms" element={<Gate user={user} roles={['admin','management','reception','supervisor','cleaner','cleaning']}><RoomsPage /></Gate>} />
       <Route path="statistics" element={<Gate user={user} roles={['admin','management','supervisor']}><StatisticsPage /></Gate>} />
       <Route path="settings" element={<Gate user={user} roles={['admin','management']}><SettingsPage /></Gate>} />
-      <Route path="reception" element={<Gate user={user} roles={['admin','management','reception']}><ReceptionDash /></Gate>} />
       <Route path="supervisor" element={<Gate user={user} roles={['admin','management','supervisor']}><SupervisorPanel /></Gate>} />
       <Route path="cleaning-mobile" element={<Gate user={user} roles={['admin','management','supervisor','cleaner','cleaning']}><CleaningMobile /></Gate>} />
       <Route path="shuttle" element={<Gate user={user} roles={['admin','management','reception','supervisor','driver','dispatcher']}><ShuttlePage /></Gate>} />
