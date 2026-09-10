@@ -1,27 +1,26 @@
 @import "tailwindcss";
+@import url("https://fonts.googleapis.com/css?family=Google+Sans:400,500,700&subset=greek,latin,latin-ext&display=swap");
 
-* {
-  box-sizing: border-box;
+@theme {
+  --font-sans: "Google Sans", sans-serif;
 }
 
 :root {
-  font-family:
-    "Google Sans",
-    "Product Sans",
-    "Inter",
-    "Segoe UI",
-    Roboto,
-    Arial,
-    sans-serif;
-
+  --sem-font-family: "Google Sans", sans-serif;
+  font-family: var(--sem-font-family);
   color-scheme: dark;
   background: #070707;
   color: #e8e1d5;
-
-  font-synthesis: none;
+  font-synthesis-style: none;
   text-rendering: geometricPrecision;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
 
 html,
@@ -29,6 +28,8 @@ body,
 #root {
   min-height: 100%;
   margin: 0;
+  font-family: var(--sem-font-family) !important;
+  font-style: normal !important;
 }
 
 html {
@@ -40,14 +41,50 @@ body {
   min-width: 320px;
   background: #070707;
   color: #e8e1d5;
-  font-family:
-    "Google Sans",
-    "Product Sans",
-    "Inter",
-    "Segoe UI",
-    Roboto,
-    Arial,
-    sans-serif;
+}
+
+/*
+ * PMS typography contract:
+ * - Google Sans is the only UI typeface.
+ * - No component, utility class or semantic tag may render italic text.
+ * - The rule is intentionally global so it also covers the public Guest Portal.
+ */
+#root,
+#root *,
+#root *::before,
+#root *::after,
+button,
+input,
+textarea,
+select,
+option,
+table,
+th,
+td,
+a,
+p,
+span,
+div,
+label,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+small,
+strong,
+b,
+em,
+i,
+cite,
+dfn,
+var,
+address,
+code,
+pre {
+  font-family: var(--sem-font-family) !important;
+  font-style: normal !important;
 }
 
 button,
