@@ -107,8 +107,8 @@ const CalendarPage = () => {
       startDate: requestedStart,
       endDate: addDays(requestedStart, 1),
       roomId: room?.id ? String(room.id) : '',
-      firstName: '', lastName: '', email: '', phone: '', country: 'GR', nationality: 'GR',
-      adults: 1, children: 0, arrivalTime: '', sourceId: '', sendEmailConfirmation: true,
+      firstName: '', lastName: '', email: '', phone: '', country: 'GR', nationality: 'GR', zip: '',
+      adults: 1, children: 0, arrivalTime: '', sourceId: '', paymentMethod: 'cash', sendEmailConfirmation: true,
     });
     setAvailability(null); setSubmitState({ loading: false, error: '', result: null }); setModalOpen(true);
   };
@@ -141,25 +141,40 @@ const CalendarPage = () => {
         });
         setAvailability(response.data?.data || null);
       } catch (error) {
-        setAvailability({ roomAvailable: false, availableRooms: [], conflicts: error.response?.data?.details?.conflicts || [], error: error.response?.data?.message || error.message });
+        setAvailability({ roomAvailable: false, availableRooms: [], availableRoomTypes: [], conflicts: error.response?.data?.details?.conflicts || [], error: error.response?.data?.message || error.message });
       } finally { setAvailabilityLoading(false); }
     }, 250);
     return () => window.clearTimeout(timer);
   }, [modalOpen, booking?.propertyId, booking?.startDate, booking?.endDate, booking?.adults, booking?.children, booking?.roomId]);
 
-  const availableRooms = availability?.availableRooms || [];
+  const rawAvailableRooms = availability?.availableRooms || [];
+  const sellableTypes = availability?.availableRoomTypes || [];
+  const sellableRoomTypeIds = new Set(
+    sellableTypes
+      .filter((roomType) => Number(roomType.roomsAvailable || 0) > 0)
+      .map((roomType) => String(roomType.roomTypeId))
+  );
+  const availableRooms = sellableTypes.length
+    ? rawAvailableRooms.filter((room) => sellableRoomTypeIds.has(String(room.roomTypeId)))
+    : rawAvailableRooms;
   const selectedRoom = inventory.find((room) => String(room.id) === String(booking?.roomId || ''));
-  const selectedAvailable = !booking?.roomId ? false : availability?.roomAvailable === true && availableRooms.some((room) => String(room.id) === String(booking.roomId));
+  const selectedLiveRoom = rawAvailableRooms.find((room) => String(room.id) === String(booking?.roomId || '')) || selectedRoom;
+  const selectedTypeSellable = !sellableTypes.length || sellableRoomTypeIds.has(String(selectedLiveRoom?.roomTypeId || ''));
+  const selectedAvailable = !booking?.roomId ? false
+    : availability?.roomAvailable === true &&
+      rawAvailableRooms.some((room) => String(room.id) === String(booking.roomId)) &&
+      selectedTypeSellable;
   const dateValid = booking?.startDate && booking?.endDate && booking.startDate < booking.endDate;
 
   const createReservation = async (event) => {
     event.preventDefault();
-    if (!booking || !selectedAvailable || !dateValid) return;
+    if (!booking || !selectedAvailable || !dateValid || !String(booking.zip || '').trim()) return;
     setSubmitState({ loading: true, error: '', result: null });
     try {
-      const room = availableRooms.find((candidate) => String(candidate.id) === String(booking.roomId)) || selectedRoom;
+      const room = rawAvailableRooms.find((candidate) => String(candidate.id) === String(booking.roomId)) || selectedRoom;
       const response = await api.post('/integrations/cloudbeds/operations/reservations', {
         ...booking,
+        zip: String(booking.zip || '').trim(),
         roomTypeId: room?.roomTypeId,
       });
       const result = response.data?.data;
@@ -171,8 +186,13 @@ const CalendarPage = () => {
       }
     } catch (error) {
       const message = error.response?.data?.message || error.message || 'Reservation could not be created.';
+      const requestId = error.response?.data?.requestId;
       const conflicts = error.response?.data?.details?.conflicts || [];
-      setSubmitState({ loading: false, error: message, result: conflicts.length ? { conflicts } : null });
+      setSubmitState({
+        loading: false,
+        error: requestId ? `${message} · Cloudbeds Request ID ${requestId}` : message,
+        result: conflicts.length ? { conflicts } : null,
+      });
     }
   };
 
@@ -283,12 +303,12 @@ const CalendarPage = () => {
     {modalOpen && booking && <div className="fixed inset-0 z-[80] flex items-end justify-center bg-slate-950/50 p-0 backdrop-blur-sm sm:items-center sm:p-5">
       <div className="max-h-[96vh] w-full overflow-y-auto rounded-t-[28px] bg-white shadow-2xl sm:max-w-3xl sm:rounded-[28px]">
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white/95 px-5 py-4 backdrop-blur sm:px-7">
-          <div><div className="text-lg font-black text-slate-950">New Cloudbeds reservation</div><div className="mt-0.5 text-xs text-slate-500">Availability is checked again on the server before creation.</div></div>
+          <div><div className="text-lg font-black text-slate-950">New Cloudbeds reservation</div><div className="mt-0.5 text-xs text-slate-500">Availability and sellable room-type inventory are checked again immediately before creation.</div></div>
           <button onClick={()=>setModalOpen(false)} className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-xl text-slate-600">×</button>
         </div>
         <form onSubmit={createReservation} className="space-y-6 p-5 sm:p-7">
           <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-5">
-            <div className="mb-4 flex items-center justify-between"><div><div className="text-sm font-black text-slate-950">Stay & availability</div><div className="text-xs text-slate-500">Choose dates first; only free Cloudbeds rooms are offered.</div></div>{availabilityLoading && <span className="text-xs font-bold text-blue-600">Checking…</span>}</div>
+            <div className="mb-4 flex items-center justify-between"><div><div className="text-sm font-black text-slate-950">Stay & availability</div><div className="text-xs text-slate-500">Only physical rooms that are free and sellable for the complete stay can be selected.</div></div>{availabilityLoading && <span className="text-xs font-bold text-blue-600">Checking…</span>}</div>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Property"><select value={booking.propertyId} onChange={(e)=>setBooking({...booking,propertyId:e.target.value,roomId:''})} className={inputClass}>{properties.map((property)=><option key={property.id} value={property.id}>{property.name}</option>)}</select></Field>
               <div className="hidden sm:block" />
@@ -299,20 +319,22 @@ const CalendarPage = () => {
               <Field label="Physical room"><select required value={booking.roomId} onChange={(e)=>setBooking({...booking,roomId:e.target.value})} className={inputClass}><option value="">Select an available room…</option>{availableRooms.map((room)=><option key={room.id} value={room.id}>{room.roomNumber || room.id} · {room.roomType || 'Room'}</option>)}</select></Field>
               <Field label="Arrival time"><input type="time" value={booking.arrivalTime} onChange={(e)=>setBooking({...booking,arrivalTime:e.target.value})} className={inputClass}/></Field>
             </div>
-            {dateValid && availability && !availabilityLoading && <div className={`mt-4 rounded-xl border px-3.5 py-3 text-xs font-semibold ${booking.roomId ? (selectedAvailable?'border-emerald-200 bg-emerald-50 text-emerald-800':'border-rose-200 bg-rose-50 text-rose-800') : 'border-blue-200 bg-blue-50 text-blue-800'}`}>{booking.roomId ? (selectedAvailable ? `${selectedRoom?.roomNumber || 'Selected room'} is free for all ${dayDiff(booking.startDate,booking.endDate)} night(s).` : (availability.error || 'This room is not available for the complete stay. Choose another room.')) : `${availableRooms.length} physical room(s) currently available in Cloudbeds.`}</div>}
+            {dateValid && availability && !availabilityLoading && <div className={`mt-4 rounded-xl border px-3.5 py-3 text-xs font-semibold ${booking.roomId ? (selectedAvailable?'border-emerald-200 bg-emerald-50 text-emerald-800':'border-rose-200 bg-rose-50 text-rose-800') : 'border-blue-200 bg-blue-50 text-blue-800'}`}>{booking.roomId ? (selectedAvailable ? `${selectedRoom?.roomNumber || 'Selected room'} is free and sellable for all ${dayDiff(booking.startDate,booking.endDate)} night(s).` : (availability.error || (selectedTypeSellable ? 'This room is not available for the complete stay. Choose another room.' : 'The physical room is free, but Cloudbeds reports no sellable inventory for its room type on these dates.'))) : `${availableRooms.length} sellable physical room(s) currently available in Cloudbeds.`}</div>}
             {(availability?.conflicts || []).length > 0 && <div className="mt-3 rounded-xl border border-rose-200 bg-white p-3"><div className="text-xs font-black text-rose-800">Booking conflict detected</div>{availability.conflicts.map((conflict)=><div key={conflict.reservationId} className="mt-1 text-xs text-rose-700">Reservation {conflict.reservationId}: {conflict.guestName} · {conflict.startDate} → {conflict.endDate}</div>)}</div>}
           </section>
 
-          <section><div className="mb-4"><div className="text-sm font-black text-slate-950">Guest details</div><div className="text-xs text-slate-500">Creates the guest and reservation directly in Cloudbeds.</div></div><div className="grid gap-4 sm:grid-cols-2">
+          <section><div className="mb-4"><div className="text-sm font-black text-slate-950">Guest details</div><div className="text-xs text-slate-500">Required Cloudbeds create fields are sent with the reservation, including postal code and payment method.</div></div><div className="grid gap-4 sm:grid-cols-2">
             <Field label="First name"><input required value={booking.firstName} onChange={(e)=>setBooking({...booking,firstName:e.target.value})} className={inputClass}/></Field>
             <Field label="Last name"><input required value={booking.lastName} onChange={(e)=>setBooking({...booking,lastName:e.target.value})} className={inputClass}/></Field>
             <Field label="Email"><input required type="email" value={booking.email} onChange={(e)=>setBooking({...booking,email:e.target.value})} className={inputClass}/></Field>
             <Field label="Phone"><input value={booking.phone} onChange={(e)=>setBooking({...booking,phone:e.target.value})} className={inputClass}/></Field>
-            <Field label="Country code"><input maxLength="2" value={booking.country} onChange={(e)=>setBooking({...booking,country:e.target.value.toUpperCase()})} className={inputClass}/></Field>
+            <Field label="Country code"><input required maxLength="2" value={booking.country} onChange={(e)=>setBooking({...booking,country:e.target.value.toUpperCase()})} className={inputClass}/></Field>
+            <Field label="Postal / ZIP code"><input required autoComplete="postal-code" value={booking.zip} onChange={(e)=>setBooking({...booking,zip:e.target.value})} className={inputClass}/></Field>
             <Field label="Nationality"><input maxLength="2" value={booking.nationality} onChange={(e)=>setBooking({...booking,nationality:e.target.value.toUpperCase()})} className={inputClass}/></Field>
+            <Field label="Payment method"><select value={booking.paymentMethod} onChange={(e)=>setBooking({...booking,paymentMethod:e.target.value})} className={inputClass}><option value="cash">Cash / pay at property</option><option value="credit">Credit card</option><option value="ebanking">E-banking</option><option value="pay_pal">PayPal</option></select></Field>
             <Field label="Booking source"><select value={booking.sourceId} onChange={(e)=>setBooking({...booking,sourceId:e.target.value})} className={inputClass}><option value="">Cloudbeds default / direct</option>{(calendar.sources || []).map((source)=><option key={source.sourceID || source.id} value={source.sourceID || source.id}>{source.sourceName || source.name || source.sourceID || source.id}</option>)}</select></Field>
             <label className="flex min-h-12 items-center gap-3 rounded-xl border border-slate-200 px-4 py-3"><input type="checkbox" checked={booking.sendEmailConfirmation} onChange={(e)=>setBooking({...booking,sendEmailConfirmation:e.target.checked})} className="h-4 w-4"/><span className="text-sm font-semibold text-slate-700">Send Cloudbeds confirmation email</span></label>
-          </div></section>
+          </div><div className="mt-3 text-[11px] text-slate-500">For manual Front Desk bookings, Cash / pay at property is the safe default. No payment is charged by this form.</div></section>
 
           {submitState.error && <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4"><div className="text-sm font-black text-rose-900">Reservation not created</div><div className="mt-1 text-sm text-rose-700">{submitState.error}</div>{submitState.result?.conflicts?.map((conflict)=><div key={conflict.reservationId} className="mt-2 text-xs text-rose-700">Conflict: {conflict.guestName} · {conflict.startDate} → {conflict.endDate}</div>)}</div>}
           {submitState.result?.partial && <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4"><div className="text-sm font-black text-amber-950">Reservation created — room assignment needs attention</div><div className="mt-1 text-sm text-amber-800">Cloudbeds reservation {submitState.result.reservationId} exists. Do not submit again. Open the reservation and assign a physical room.</div><div className="mt-2 text-xs text-amber-700">{submitState.result.assignmentError?.message}</div></div>}
@@ -320,7 +342,7 @@ const CalendarPage = () => {
 
           <div className="sticky bottom-0 -mx-5 -mb-5 flex gap-3 border-t border-slate-200 bg-white/95 p-5 backdrop-blur sm:-mx-7 sm:-mb-7 sm:px-7">
             <button type="button" onClick={()=>setModalOpen(false)} className="flex-1 rounded-xl border border-slate-300 px-4 py-3 text-sm font-bold text-slate-700">Cancel</button>
-            <button type="submit" disabled={submitState.loading || availabilityLoading || !selectedAvailable || !dateValid || Boolean(submitState.result?.partial)} className="flex-[1.5] rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40">{submitState.loading ? 'Creating in Cloudbeds…' : 'Create reservation'}</button>
+            <button type="submit" disabled={submitState.loading || availabilityLoading || !selectedAvailable || !dateValid || !String(booking.zip || '').trim() || Boolean(submitState.result?.partial)} className="flex-[1.5] rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40">{submitState.loading ? 'Creating in Cloudbeds…' : 'Create reservation'}</button>
           </div>
         </form>
       </div>
