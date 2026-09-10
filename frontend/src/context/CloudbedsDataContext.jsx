@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import api from '../services/api';
 
 export const CloudbedsDataContext = createContext(null);
@@ -12,6 +12,80 @@ const localDateKey = () => {
 };
 
 const sleep = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
+const applyVerifiedRoomOverlays = (reservations, overlays) => {
+  const now = Date.now();
+  return reservations.map((reservation) => {
+    const id = String(reservation.id || '');
+    const overlay = overlays.get(id);
+    if (!overlay) return reservation;
+
+    if (overlay.expiresAt <= now) {
+      overlays.delete(id);
+      return reservation;
+    }
+
+    const remoteRoomIds = Array.isArray(reservation.roomIds) && reservation.roomIds.length
+      ? reservation.roomIds.map(String)
+      : [String(reservation.roomId || '')];
+
+    if (remoteRoomIds.includes(String(overlay.roomId))) {
+      overlays.delete(id);
+      return reservation;
+    }
+
+    const room = {
+      ...(reservation.room || {}),
+      id: String(overlay.roomId),
+      roomNumber: overlay.roomNumber || String(overlay.roomId),
+      roomType: overlay.roomType || reservation.roomType || '',
+    };
+
+    return {
+      ...reservation,
+      roomId: String(overlay.roomId),
+      roomIds: [String(overlay.roomId)],
+      roomNumber: overlay.roomNumber || String(overlay.roomId),
+      roomNumbers: [overlay.roomNumber || String(overlay.roomId)],
+      roomType: overlay.roomType || reservation.roomType || '',
+      roomTypes: [overlay.roomType || reservation.roomType || ''],
+      room,
+      syncStatus: 'synced',
+      syncEvent: 'cloudbeds_verified_room_assignment',
+    };
+  });
+};
+
+const reconcileRoomOccupancy = (rooms, reservations) => {
+  const today = localDateKey();
+  return rooms.map((room) => {
+    const roomReservations = reservations
+      .filter((reservation) => {
+        const ids = Array.isArray(reservation.roomIds) && reservation.roomIds.length
+          ? reservation.roomIds.map(String)
+          : [String(reservation.roomId || '')];
+        return ids.includes(String(room.id)) && reservation.status !== 'cancelled';
+      })
+      .sort((a, b) => String(a.arrivalDate || '').localeCompare(String(b.arrivalDate || '')));
+
+    const inHouse = roomReservations.find(
+      (reservation) => reservation.status === 'in_house' || (
+        reservation.arrivalDate && reservation.departureDate && reservation.arrivalDate <= today &&
+        reservation.departureDate > today
+      )
+    );
+    const checkoutToday = roomReservations.find((reservation) => reservation.departureDate === today);
+    const arrivingToday = roomReservations.find((reservation) => reservation.arrivalDate === today);
+    const nextArrival = roomReservations.find((reservation) => reservation.arrivalDate >= today);
+
+    return {
+      ...room,
+      occupancyStatus: checkoutToday ? 'checkout_today' : inHouse ? 'occupied' : arrivingToday ? 'arriving_today' : 'vacant',
+      currentGuest: inHouse?.guestName || null,
+      nextArrivalBookingId: nextArrival?.id || null,
+    };
+  });
+};
 
 const buildDerivedData = (reservations) => {
   const propertyMap = new Map();
@@ -128,6 +202,7 @@ export const CloudbedsDataProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [writeState, setWriteState] = useState({ syncing: false, operation: null, result: null, error: '' });
+  const verifiedRoomAssignmentsRef = useRef(new Map());
 
   const refresh = useCallback(async () => {
     try {
@@ -138,6 +213,7 @@ export const CloudbedsDataProvider = ({ children }) => {
       setStatus(nextStatus);
 
       if (!nextStatus.authorized && !nextStatus.connected) {
+        verifiedRoomAssignmentsRef.current.clear();
         setReservations([]); setProperties([]); setRooms([]); setCustomers([]); setHousekeeping([]);
         setDashboard(null); setDiagnostics(null); return;
       }
@@ -152,9 +228,15 @@ export const CloudbedsDataProvider = ({ children }) => {
         data = reservationsResponse.data;
       }
 
-      setReservations(data.reservations || []);
+      const nextReservations = applyVerifiedRoomOverlays(
+        data.reservations || [],
+        verifiedRoomAssignmentsRef.current
+      );
+      const nextRooms = reconcileRoomOccupancy(data.rooms || [], nextReservations);
+
+      setReservations(nextReservations);
       setProperties(data.properties || []);
-      setRooms(data.rooms || []);
+      setRooms(nextRooms);
       setCustomers(data.guests || []);
       setHousekeeping(data.housekeeping || []);
       setDashboard(data.dashboard || null);
@@ -183,6 +265,7 @@ export const CloudbedsDataProvider = ({ children }) => {
     try {
       setLoading(true); setError('');
       await api.post('/integrations/cloudbeds/disconnect');
+      verifiedRoomAssignmentsRef.current.clear();
       setReservations([]); setProperties([]); setRooms([]); setCustomers([]); setHousekeeping([]);
       setDashboard(null); setDiagnostics(null);
       setStatus({ connected: false, authorized: false, connectionVerified: true, appState: 'disabled', environment: status?.environment || 'sandbox' });
@@ -198,6 +281,7 @@ export const CloudbedsDataProvider = ({ children }) => {
     try {
       setLoading(true); setError('');
       await api.post('/integrations/cloudbeds/disconnect');
+      verifiedRoomAssignmentsRef.current.clear();
       setReservations([]); setProperties([]); setRooms([]); setCustomers([]); setHousekeeping([]);
       setDashboard(null); setDiagnostics(null);
       setStatus({ connected: false, authorized: false, connectionVerified: true, appState: 'disabled', environment: status?.environment || 'sandbox' });
@@ -211,11 +295,20 @@ export const CloudbedsDataProvider = ({ children }) => {
     try {
       const response = await request();
       const result = response.data?.data ?? response.data;
-      setWriteState({ syncing: false, operation, result, error: '' });
 
-      // Cloudbeds writes are verified by the API endpoint, but the PMS snapshot/webhook
-      // can trail the write for a short period. Re-read with cache busting and retry
-      // reservation writes so the UI cannot keep showing the previous room/dates.
+      // The server only returns room-assignment success after reading the physical
+      // room back from Cloudbeds. Preserve that verified result while the broader
+      // reservation snapshot catches up, so the PMS can never jump back to the old room.
+      if (operation === 'reservation.room_assign' && result?.reservationId && result?.room?.id) {
+        verifiedRoomAssignmentsRef.current.set(String(result.reservationId), {
+          roomId: String(result.room.id),
+          roomNumber: result.room.roomNumber || String(result.room.id),
+          roomType: result.room.roomType || '',
+          expiresAt: Date.now() + 120000,
+        });
+      }
+
+      setWriteState({ syncing: false, operation, result, error: '' });
       await refresh();
       if (operation === 'reservation.room_assign' || operation === 'reservation.update') {
         await sleep(700);
@@ -228,7 +321,12 @@ export const CloudbedsDataProvider = ({ children }) => {
       const message = requestError.response?.data?.message || requestError.message || 'Cloudbeds write-back failed.';
       const requestId = requestError.response?.data?.requestId;
       const decorated = requestId ? `${message} · Request ID ${requestId}` : message;
-      setWriteState({ syncing: false, operation, result: null, error: decorated });
+      setWriteState({
+        syncing: false,
+        operation,
+        result: requestError.response?.data?.details || null,
+        error: decorated,
+      });
       throw requestError;
     }
   }, [refresh]);
