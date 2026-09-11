@@ -8,31 +8,24 @@ export const AuthProvider = ({ children }) => {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        // Αν ο χρήστης έχει ήδη ενεργό session, κάνε αυτόματο login
         const savedUser = localStorage.getItem('sem_user');
         const token = localStorage.getItem('sem_jwt_token');
-        
+
         if (savedUser && token) {
-            setUser(JSON.parse(savedUser));
+            try {
+                setUser(JSON.parse(savedUser));
+            } catch {
+                localStorage.removeItem('sem_user');
+                localStorage.removeItem('sem_jwt_token');
+            }
         }
         setLoading(false);
     }, []);
 
-    // Βήμα 1: Email & Password
-    const loginStep1 = async (email, password) => {
-        const response = await api.post('/auth/login', { email, password });
-        return response.data; // Επιστρέφει το { userId }
-    };
-
-    // Βήμα 2: Έλεγχος 2FA Κωδικού
-    const loginStep2 = async (userId, code, rememberDevice) => {
-        const response = await api.post('/auth/verify-2fa', { userId, code, rememberDevice });
-        const { token, rememberDeviceToken, user: userData } = response.data;
-
-        // Αποθήκευση σταθερών στοιχείων στο LocalStorage
+    const persistSession = ({ token, user: userData, rememberDeviceToken }) => {
         localStorage.setItem('sem_jwt_token', token);
         localStorage.setItem('sem_user', JSON.stringify(userData));
-        
+
         if (rememberDeviceToken) {
             localStorage.setItem('sem_device_token', rememberDeviceToken);
         }
@@ -41,9 +34,28 @@ export const AuthProvider = ({ children }) => {
         return userData;
     };
 
+    const loginStep1 = async (email, password) => {
+        const deviceToken = localStorage.getItem('sem_device_token');
+        const response = await api.post('/auth/login', { email, password, deviceToken });
+        const data = response.data;
+
+        if (data?.authenticated && data?.token && data?.user) {
+            persistSession(data);
+        }
+
+        return data;
+    };
+
+    const loginStep2 = async (userId, code, rememberDevice) => {
+        const response = await api.post('/auth/verify-2fa', { userId, code, rememberDevice });
+        return persistSession(response.data);
+    };
+
     const logout = () => {
         localStorage.removeItem('sem_jwt_token');
         localStorage.removeItem('sem_user');
+        // sem_device_token intentionally remains when the user chose
+        // "Trust this device" so the next sign-in on this device skips 2FA.
         setUser(null);
     };
 
