@@ -24,7 +24,13 @@ const cloudbedsReservationId = (payload = {}, fallback = null) => (
 const scheduleGuestJourney = (reservationId, eventName) => {
     if (!reservationId) return;
     const event = String(eventName || '').toLowerCase();
-    if (event && !event.includes('reservation') && !event.includes('booking')) return;
+    const isNewReservation = (
+        /(reservation|booking).*(created|create|new)/.test(event) ||
+        /(created|create|new).*(reservation|booking)/.test(event) ||
+        event === 'reservation.created' ||
+        event === 'reservation/created'
+    );
+    if (!isNewReservation) return;
 
     setTimeout(() => {
         guestPortalService.sendAutomaticReservationEmails(String(reservationId))
@@ -84,6 +90,7 @@ const handleCloudbeds = async (payload, res) => {
         [channelResId, 'cloudbeds']
     );
 
+    let createdReservation = false;
     if (existing.length) {
         await db.query(
             `UPDATE reservations SET room_id = ?, ota_reference_number = ?, guest_name = ?,
@@ -93,6 +100,7 @@ const handleCloudbeds = async (payload, res) => {
             [roomId, otaRef, guestName, guestEmail, guestPhone, checkIn, checkOut, status, existing[0].id]
         );
     } else if (checkIn && checkOut) {
+        createdReservation = true;
         const result = await db.query(
             `INSERT INTO reservations
              (room_id, channel_reservation_id, source, ota_reference_number, guest_name, guest_email,
@@ -109,7 +117,7 @@ const handleCloudbeds = async (payload, res) => {
         }
     }
 
-    scheduleGuestJourney(channelResId, 'reservation.legacy');
+    if (createdReservation) scheduleGuestJourney(channelResId, 'reservation.created');
     return res.status(200).json({ success: true, accepted: true, mapped: true });
 };
 
