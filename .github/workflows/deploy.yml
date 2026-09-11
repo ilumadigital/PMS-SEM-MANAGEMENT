@@ -45,6 +45,12 @@ jobs:
             ENV_FILE=/home/deployer/pms-secrets/backend.env
             test -f "$ENV_FILE" || { echo "$ENV_FILE is missing on VPS"; exit 1; }
 
+            echo "Ensure a persistent JWT secret exists"
+            if ! grep -Eq '^JWT_SECRET=.+' "$ENV_FILE"; then
+              printf '\\nJWT_SECRET=%s\\n' "$(openssl rand -hex 48)" >> "$ENV_FILE"
+              echo "Generated JWT_SECRET in protected VPS env file"
+            fi
+
             echo "Validate production secrets"
             for VAR in CLOUDBEDS_CLIENT_ID CLOUDBEDS_CLIENT_SECRET CLOUDBEDS_REDIRECT_URI JWT_SECRET SMTP_HOST SMTP_USER SMTP_PASS SMTP_FROM; do
               grep -Eq "^${VAR}=.+" "$ENV_FILE" || { echo "Missing required production variable: $VAR"; exit 1; }
