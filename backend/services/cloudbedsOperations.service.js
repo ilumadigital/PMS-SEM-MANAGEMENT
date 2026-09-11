@@ -187,6 +187,10 @@ async function apiRequest(path, { apiKey, baseUrl, method = 'GET', query, form }
         error.requestId = response.headers.get('x-request-id') || null;
         error.cloudbedsPayload = payload;
         error.requestUrl = url.toString();
+        error.details = {
+            requestUrl: url.toString(),
+            cloudbeds: payload,
+        };
         throw error;
     }
     return { payload, requestId: response.headers.get('x-request-id') || null, requestUrl: url.toString() };
@@ -730,9 +734,8 @@ function normalizeBlockRooms(rooms) {
 }
 async function createRoomBlock(payload, actor) {
     const propertyId = requiredString(payload.propertyId || payload.propertyID, 'propertyId');
-    const rawType = String(payload.roomBlockType || 'out_of_service');
-    const type = rawType === 'blocked_dates' ? 'blocked' : rawType;
-    if (!['blocked', 'out_of_service', 'courtesy_hold'].includes(type)) { const error = new Error('Unsupported room block type.'); error.code = 'VALIDATION_ERROR'; error.status = 400; throw error; }
+    const type = String(payload.roomBlockType || 'out_of_service');
+    if (!['blocked_dates', 'out_of_service', 'courtesy_hold'].includes(type)) { const error = new Error('Unsupported room block type.'); error.code = 'VALIDATION_ERROR'; error.status = 400; throw error; }
     const form = { propertyID: propertyId, roomBlockType: type, roomBlockReason: requiredString(payload.roomBlockReason || payload.reason, 'roomBlockReason'), startDate: optionalDate(payload.startDate, 'startDate'), endDate: optionalDate(payload.endDate, 'endDate'), rooms: normalizeBlockRooms(payload.rooms) };
     if (!form.startDate || !form.endDate) { const error = new Error('startDate and endDate are required.'); error.code = 'VALIDATION_ERROR'; error.status = 400; throw error; }
     ['firstName', 'lastName', 'email', 'phone', 'lengthOfHoldInHours'].forEach((key) => { if (payload[key] !== undefined && payload[key] !== '') form[key] = payload[key]; });
