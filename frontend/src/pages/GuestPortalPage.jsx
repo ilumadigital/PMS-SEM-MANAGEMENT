@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import api from '../services/api';
+import SemLogo from '../components/SemLogo';
 
 const steps = ['Stay', 'Arrival', 'Extras', 'Review'];
 const tabs = [
@@ -129,9 +130,9 @@ const LuxuryHero = ({ firstName, portal, compact = false }) => {
       <div className="pointer-events-none absolute -bottom-32 -left-16 h-72 w-72 rounded-full bg-[#52646f]/15 blur-3xl" />
       <div className={`relative px-5 sm:px-8 lg:px-11 ${compact ? 'pb-6 pt-5 sm:py-8' : 'pb-7 pt-5 sm:py-10 lg:py-12'}`}>
         <div className="flex items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#d7bd91]/30 bg-white/[0.05] text-[13px] font-bold tracking-[0.18em] text-[#e4cda8]">SEM</div>
-            <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-4">
+            <SemLogo inverted className="h-8 w-auto max-w-[138px] shrink-0" />
+            <div className="min-w-0 border-l border-white/10 pl-4">
               <div className="truncate text-[10px] font-bold uppercase tracking-[0.24em] text-[#dec69f]">Guest Experience</div>
               <div className="mt-0.5 truncate text-[11px] text-white/40">Private stay portal</div>
             </div>
@@ -600,7 +601,7 @@ const SectionHeading = ({ eyebrow, title, subtitle, compact = false }) => (
 );
 
 const EmptyState = ({ title, text }) => <div className="rounded-[22px] border border-[#e0d8cd] bg-[#fffdf9] p-7 text-center"><div className="text-[15px] font-bold text-[#1d1b18]">{title}</div><div className="mt-2 text-[12px] leading-5 text-[#837b70]">{text}</div></div>;
-const LoadingScreen = () => <div className="flex min-h-[80dvh] items-center justify-center"><div className="text-center"><div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#171612] text-[12px] font-bold tracking-[0.15em] text-[#d9c4a3]">SEM</div><div className="mt-5 text-[13px] font-bold text-[#5f584f]">Preparing your stay…</div></div></div>;
+const LoadingScreen = () => <div className="flex min-h-[80dvh] items-center justify-center"><div className="text-center"><SemLogo className="mx-auto h-9 w-auto max-w-[142px]" /><div className="mt-5 text-[13px] font-bold text-[#5f584f]">Preparing your stay…</div></div></div>;
 const ErrorScreen = ({ message }) => <div className="mx-3 mt-20 rounded-[24px] border border-rose-200 bg-white p-6 text-center shadow-lg sm:mx-auto sm:max-w-xl sm:rounded-[28px] sm:p-7"><div className="text-lg font-bold text-[#171612]">This private link is unavailable</div><div className="mt-3 text-[13px] leading-6 text-rose-700">{message}</div></div>;
 
 const Status = ({ status, dark = false }) => {
@@ -641,7 +642,7 @@ const Icon = ({ name, className = 'h-5 w-5' }) => {
 const PortalFrame = ({ children, hasMobileNav = false }) => (
   <div className="min-h-screen bg-[#f4f0e9] font-sans text-[#171612]" style={{ fontFamily: '"Google Sans", sans-serif' }}>
     <main className={`mx-auto w-full max-w-[1280px] sm:px-5 sm:py-5 lg:px-8 lg:py-8 ${hasMobileNav ? 'pb-28 sm:pb-8' : 'pb-7'}`}>{children}</main>
-    <footer className={`${hasMobileNav ? 'pb-28 sm:pb-8' : 'pb-8'} pt-7 text-center sm:pt-10`}><div className="text-[9px] font-bold uppercase tracking-[0.22em] text-[#978d7f]">SEM Estate & Mobility</div><div className="mt-1.5 text-[10px] text-[#aaa095]">Your private guest experience</div></footer>
+    <footer className={`${hasMobileNav ? 'pb-28 sm:pb-8' : 'pb-8'} pt-7 text-center sm:pt-10`}><SemLogo className="mx-auto h-7 w-auto max-w-[120px]" /><div className="mt-2 text-[10px] text-[#aaa095]">Your private guest experience</div></footer>
   </div>
 );
 
