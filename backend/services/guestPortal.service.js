@@ -1,6 +1,8 @@
 const crypto = require('crypto');
 const nodemailer = require('nodemailer');
 const PDFDocument = require('pdfkit');
+const fs = require('fs');
+const path = require('path');
 const db = require('../config/db');
 const cloudbedsService = require('./cloudbeds.service');
 
@@ -210,6 +212,33 @@ function createTransporter() {
     });
 }
 
+function brandLogoPath() {
+    const candidates = [
+        process.env.BRAND_LOGO_PATH,
+        '/brand/sem-logo.webp',
+        path.resolve(__dirname, '../../frontend/src/assets/sem-logo.webp'),
+    ].filter(Boolean);
+    return candidates.find((candidate) => {
+        try { return fs.existsSync(candidate); } catch { return false; }
+    }) || null;
+}
+
+function brandLogoAttachment() {
+    const logoPath = brandLogoPath();
+    if (!logoPath) return null;
+    return {
+        filename: 'sem-logo.webp',
+        path: logoPath,
+        cid: 'sem-logo@sem-management',
+        contentType: 'image/webp',
+        contentDisposition: 'inline',
+    };
+}
+
+function darkEmailLogoHtml() {
+    return '<img src="cid:sem-logo@sem-management" alt="SEM" width="150" style="display:block;width:150px;max-width:100%;height:auto;filter:brightness(0) invert(1);-webkit-filter:brightness(0) invert(1);">';
+}
+
 function guestPortalSecret() {
     const secret = process.env.GUEST_PORTAL_SECRET || process.env.JWT_SECRET || process.env.INTEGRATION_SECRET;
     if (!secret) {
@@ -267,8 +296,8 @@ function bookingConfirmationHtml(reservation) {
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="padding:24px 12px;background:#f4f6fb"><tr><td align="center">
       <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:680px;background:#fff;border:1px solid #dce3ef">
         <tr><td style="padding:20px 26px;background:#0b2f7f;color:#fff">
-          <div style="font-size:27px;font-weight:800;letter-spacing:.04em">SEM</div>
-          <div style="margin-top:2px;font-size:13px;font-weight:700">booking confirmation</div>
+          ${darkEmailLogoHtml()}
+          <div style="margin-top:10px;font-size:13px;font-weight:700">booking confirmation</div>
         </td></tr>
         <tr><td style="padding:28px 30px">
           <div style="font-size:15px;color:#667085">Hello ${firstName}, your reservation is confirmed.</div>
@@ -300,8 +329,9 @@ function portalInviteHtml(portal) {
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="padding:28px 14px;background:#f5f2ec"><tr><td align="center">
       <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:660px;background:#fffdf9;border:1px solid #e3dbd0;border-radius:22px;overflow:hidden">
         <tr><td style="padding:28px 30px;background:#171612;color:#fff">
-          <div style="font-size:11px;font-weight:700;letter-spacing:.18em;color:#d9c4a3">SEM GUEST EXPERIENCE</div>
-          <div style="margin-top:10px;font-size:27px;font-weight:800">Complete your stay details</div>
+          ${darkEmailLogoHtml()}
+          <div style="margin-top:14px;font-size:11px;font-weight:700;letter-spacing:.18em;color:#d9c4a3">GUEST EXPERIENCE</div>
+          <div style="margin-top:8px;font-size:27px;font-weight:800">Complete your stay details</div>
         </td></tr>
         <tr><td style="padding:30px">
           <p style="margin:0;font-size:16px;line-height:1.6">Hi ${firstName}, your private Guest Portal is ready.</p>
@@ -328,8 +358,9 @@ function completedPortalHtml(portalUrl, reservation, stayInfo = {}) {
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="padding:28px 14px;background:#f5f2ec"><tr><td align="center">
       <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:660px;background:#fffdf9;border:2px solid #c7a66d;border-radius:22px;overflow:hidden">
         <tr><td style="padding:26px 30px;background:#171612;color:#fff">
-          <div style="font-size:11px;font-weight:800;letter-spacing:.18em;color:#e6c991">IMPORTANT - KEEP THIS EMAIL</div>
-          <div style="margin-top:10px;font-size:27px;font-weight:800">Your stay portal is active</div>
+          ${darkEmailLogoHtml()}
+          <div style="margin-top:14px;font-size:11px;font-weight:800;letter-spacing:.18em;color:#e6c991">IMPORTANT - KEEP THIS EMAIL</div>
+          <div style="margin-top:8px;font-size:27px;font-weight:800">Your stay portal is active</div>
         </td></tr>
         <tr><td style="padding:30px">
           <p style="margin:0;font-size:16px;line-height:1.7">Hi ${firstName}, your online check-in for <strong>${propertyName}</strong> is complete.</p>
@@ -412,12 +443,14 @@ async function sendTypedEmail({ portal, to, messageType, subject, html, attachme
 
     const from = process.env.GUEST_EMAIL_FROM || process.env.SMTP_FROM || process.env.SMTP_USER;
     try {
+        const logoAttachment = brandLogoAttachment();
+        const emailAttachments = logoAttachment ? [logoAttachment, ...attachments] : attachments;
         const info = await transporter.sendMail({
             from,
             to,
             subject,
             html,
-            attachments,
+            attachments: emailAttachments,
             priority,
             headers: priority === 'high'
                 ? { Importance: 'high', 'X-Priority': '1', 'X-MSMail-Priority': 'High' }
