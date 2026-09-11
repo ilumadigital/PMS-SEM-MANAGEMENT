@@ -9,10 +9,16 @@ const actor = (req) => ({ userId: req.user?.userId, role: req.user?.role });
 
 const sendError = (res, error) => {
     console.error('❌ [CLOUDBEDS WRITE]:', error.message);
-    return res.status(error.status || 502).json({
+    const upstreamStatus = Number(error.status || 0);
+    const status = [401, 403].includes(upstreamStatus) ? 409 : (error.status || 502);
+    return res.status(status).json({
         success: false,
-        error: error.code || 'CLOUDBEDS_WRITE_ERROR',
-        message: error.message,
+        error: [401, 403].includes(upstreamStatus)
+            ? 'CLOUDBEDS_REAUTHORIZATION_REQUIRED'
+            : (error.code || 'CLOUDBEDS_WRITE_ERROR'),
+        message: [401, 403].includes(upstreamStatus)
+            ? 'Cloudbeds rejected the authorization for this write. Reconnect Cloudbeds from Settings and try again.'
+            : error.message,
         requestId: error.requestId || null,
         details: error.details || null,
     });
