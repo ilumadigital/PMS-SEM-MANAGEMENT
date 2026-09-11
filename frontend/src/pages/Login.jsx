@@ -1,5 +1,6 @@
 import React, { useContext, useState } from 'react';
 import { AuthContext } from '../context/AuthContext';
+import SemLogo from '../components/SemLogo';
 
 const Login = () => {
     const { loginStep1, loginStep2 } = useContext(AuthContext);
@@ -39,7 +40,7 @@ const Login = () => {
             <div style={styles.glowOne} />
             <div style={styles.glowTwo} />
             <div style={styles.card}>
-                <div style={styles.logoBox}><div style={styles.logo}>SEM</div></div>
+                <div style={styles.logoBox}><SemLogo style={{ width: '168px', maxHeight: '54px' }} /></div>
                 <h1 style={styles.title}>SEM PMS</h1>
                 <p style={styles.subtitle}>Property operations, reservations and guest management in one workspace.</p>
 
@@ -95,11 +96,6 @@ const styles = {
         boxSizing: 'border-box', position: 'relative', backdropFilter: 'blur(18px)',
     },
     logoBox: { display: 'flex', justifyContent: 'center', marginBottom: '18px' },
-    logo: {
-        width: '58px', height: '58px', borderRadius: '17px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: 'linear-gradient(145deg, #3b82f6, #1d4ed8)', color: '#fff', fontWeight: 700, fontSize: '16px',
-        letterSpacing: '.04em', boxShadow: '0 12px 26px rgba(37,99,235,.28)', fontFamily: font,
-    },
     title: { margin: 0, textAlign: 'center', color: '#0f172a', fontSize: '28px', lineHeight: 1.15, fontWeight: 700, letterSpacing: '-.03em', fontFamily: font },
     subtitle: { margin: '10px auto 28px', maxWidth: '330px', textAlign: 'center', color: '#64748b', fontSize: '14px', lineHeight: 1.55, fontWeight: 400 },
     form: { display: 'flex', flexDirection: 'column', gap: '18px' },
