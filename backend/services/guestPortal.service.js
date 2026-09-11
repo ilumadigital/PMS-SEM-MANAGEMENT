@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const nodemailer = require('nodemailer');
+const PDFDocument = require('pdfkit');
 const db = require('../config/db');
 const cloudbedsService = require('./cloudbeds.service');
 
@@ -47,6 +48,8 @@ async function ensureTables() {
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         INDEX idx_guest_portal_messages_portal (guest_portal_id)
     )`);
+
+    await db.query(`ALTER TABLE guest_portal_messages ADD COLUMN IF NOT EXISTS message_type VARCHAR(64) NULL AFTER guest_portal_id`);
 
     await db.query(`CREATE TABLE IF NOT EXISTS guest_portal_stay_info (
         source VARCHAR(32) NOT NULL DEFAULT 'cloudbeds',
@@ -201,25 +204,242 @@ function createTransporter() {
         port,
         secure: String(process.env.SMTP_SECURE || 'false') === 'true' || port === 465,
         auth: { user, pass },
+        pool: true,
+        maxConnections: 3,
+        maxMessages: 100,
     });
 }
 
-function emailHtml({ guestName, propertyName, checkinUrl, portalUrl }) {
-    const firstName = String(guestName || 'Guest').trim().split(/\s+/)[0] || 'Guest';
-    return `<!doctype html><html><body style="margin:0;background:#f4f7fb;font-family:Arial,sans-serif;color:#172033">
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="padding:32px 16px;background:#f4f7fb"><tr><td align="center">
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:620px;background:#fff;border-radius:18px;overflow:hidden;border:1px solid #e4e9f0">
-    <tr><td style="padding:28px 30px;background:#111827;color:#fff"><div style="font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:#93c5fd">SEM Guest Experience</div><h1 style="margin:10px 0 0;font-size:26px">Welcome ${firstName}</h1></td></tr>
-    <tr><td style="padding:30px"><p style="margin:0 0 14px;font-size:16px;line-height:1.6">Your reservation at <strong>${propertyName}</strong> is confirmed.</p>
-    <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#4b5563">Complete your online check-in and keep this secure link. It becomes your SEM mini-site for room access, Wi-Fi, property information, transfers, services and requests throughout your stay.</p>
-    <p style="margin:0 0 24px"><a href="${checkinUrl}" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;font-weight:700;padding:13px 20px;border-radius:10px">Complete online check-in</a></p>
-    <p style="margin:0;font-size:13px;color:#6b7280">Guest Portal: <a href="${portalUrl}" style="color:#2563eb">${portalUrl}</a></p>
-    <p style="margin:18px 0 0;font-size:12px;line-height:1.5;color:#9ca3af">This is a private link for your reservation. Please do not share it.</p></td></tr></table></td></tr></table></body></html>`;
+function guestPortalSecret() {
+    const secret = process.env.GUEST_PORTAL_SECRET || process.env.JWT_SECRET || process.env.INTEGRATION_SECRET;
+    if (!secret) {
+        const error = new Error('GUEST_PORTAL_SECRET or JWT_SECRET is required for stable guest links.');
+        error.code = 'GUEST_PORTAL_SECRET_MISSING';
+        throw error;
+    }
+    return secret;
+}
+
+function portalTokenForReservation(reservationId) {
+    return crypto
+        .createHmac('sha256', guestPortalSecret())
+        .update(`cloudbeds:guest-portal:${String(reservationId)}`)
+        .digest('base64url');
+}
+
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+}
+
+function formatDateForGuest(value) {
+    if (!value) return 'To be confirmed';
+    const date = new Date(`${String(value).slice(0, 10)}T12:00:00Z`);
+    if (Number.isNaN(date.getTime())) return String(value);
+    return new Intl.DateTimeFormat('en-GB', {
+        weekday: 'short',
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        timeZone: 'UTC',
+    }).format(date);
+}
+
+function pdfSafe(value) {
+    return String(value ?? '')
+        .normalize('NFKD')
+        .replace(/[^\x20-\x7E\xA0-\xFF]/g, '?');
+}
+
+function bookingConfirmationHtml(reservation) {
+    const firstName = escapeHtml(String(reservation.guestName || 'Guest').trim().split(/\s+/)[0] || 'Guest');
+    const propertyName = escapeHtml(reservation.propertyName || 'SEM Property');
+    const bookingRef = escapeHtml(reservation.id || '');
+    const arrival = escapeHtml(formatDateForGuest(reservation.arrivalDate));
+    const departure = escapeHtml(formatDateForGuest(reservation.departureDate));
+    const room = escapeHtml([reservation.roomNumber, reservation.roomType].filter(Boolean).join(' - ') || 'To be assigned');
+
+    return `<!doctype html><html><body style="margin:0;background:#f4f6fb;font-family:Arial,sans-serif;color:#102a5e">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="padding:24px 12px;background:#f4f6fb"><tr><td align="center">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:680px;background:#fff;border:1px solid #dce3ef">
+        <tr><td style="padding:20px 26px;background:#0b2f7f;color:#fff">
+          <div style="font-size:27px;font-weight:800;letter-spacing:.04em">SEM</div>
+          <div style="margin-top:2px;font-size:13px;font-weight:700">booking confirmation</div>
+        </td></tr>
+        <tr><td style="padding:28px 30px">
+          <div style="font-size:15px;color:#667085">Hello ${firstName}, your reservation is confirmed.</div>
+          <div style="margin-top:24px;background:#f3f6fb;padding:24px;text-align:center">
+            <div style="font-size:14px">Booking reference</div>
+            <div style="margin-top:4px;font-size:30px;font-weight:800;letter-spacing:.05em;color:#0b2f7f">${bookingRef}</div>
+          </div>
+          <h2 style="margin:30px 0 12px;font-size:26px;color:#0b2f7f">Your stay</h2>
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="font-size:15px;line-height:1.6">
+            <tr><td style="width:120px;color:#667085;padding:5px 0">Property</td><td style="font-weight:700;padding:5px 0">${propertyName}</td></tr>
+            <tr><td style="color:#667085;padding:5px 0">Check-in</td><td style="font-weight:700;padding:5px 0">${arrival}</td></tr>
+            <tr><td style="color:#667085;padding:5px 0">Check-out</td><td style="font-weight:700;padding:5px 0">${departure}</td></tr>
+            <tr><td style="color:#667085;padding:5px 0">Room</td><td style="font-weight:700;padding:5px 0">${room}</td></tr>
+          </table>
+          <p style="margin:26px 0 0;font-size:13px;line-height:1.6;color:#667085">A printable booking confirmation PDF is attached to this email. Please keep this message for your records.</p>
+        </td></tr>
+      </table>
+    </td></tr></table></body></html>`;
+}
+
+function portalInviteHtml(portal) {
+    const reservation = portal.reservation;
+    const firstName = escapeHtml(String(reservation.guestName || 'Guest').trim().split(/\s+/)[0] || 'Guest');
+    const propertyName = escapeHtml(reservation.propertyName || 'SEM Property');
+    const arrival = escapeHtml(formatDateForGuest(reservation.arrivalDate));
+    const departure = escapeHtml(formatDateForGuest(reservation.departureDate));
+
+    return `<!doctype html><html><body style="margin:0;background:#f5f2ec;font-family:Arial,sans-serif;color:#211e1a">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="padding:28px 14px;background:#f5f2ec"><tr><td align="center">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:660px;background:#fffdf9;border:1px solid #e3dbd0;border-radius:22px;overflow:hidden">
+        <tr><td style="padding:28px 30px;background:#171612;color:#fff">
+          <div style="font-size:11px;font-weight:700;letter-spacing:.18em;color:#d9c4a3">SEM GUEST EXPERIENCE</div>
+          <div style="margin-top:10px;font-size:27px;font-weight:800">Complete your stay details</div>
+        </td></tr>
+        <tr><td style="padding:30px">
+          <p style="margin:0;font-size:16px;line-height:1.6">Hi ${firstName}, your private Guest Portal is ready.</p>
+          <div style="margin:22px 0;padding:18px;border-radius:14px;background:#f7f3ed">
+            <div style="font-size:17px;font-weight:800">${propertyName}</div>
+            <div style="margin-top:8px;font-size:14px;color:#746d63">${arrival} &rarr; ${departure}</div>
+          </div>
+          <p style="font-size:14px;line-height:1.7;color:#625b52">Please complete your online check-in. After completion, this same private portal becomes your stay hub for property information, room access, Wi-Fi, transfers, services and requests.</p>
+          <p style="margin:26px 0"><a href="${escapeHtml(portal.checkinUrl)}" style="display:inline-block;background:#171612;color:#fff;text-decoration:none;font-weight:800;padding:14px 22px;border-radius:999px">Complete online check-in</a></p>
+          <p style="margin:0;font-size:12px;line-height:1.6;color:#8a8176">Keep this private link secure. You can return to your Guest Portal at any time: <a href="${escapeHtml(portal.portalUrl)}" style="color:#72583a">${escapeHtml(portal.portalUrl)}</a></p>
+        </td></tr>
+      </table>
+    </td></tr></table></body></html>`;
+}
+
+function completedPortalHtml(portalUrl, reservation, stayInfo = {}) {
+    const firstName = escapeHtml(String(reservation.guestName || 'Guest').trim().split(/\s+/)[0] || 'Guest');
+    const propertyName = escapeHtml(reservation.propertyName || 'SEM Property');
+    const accessMessage = stayInfo.accessReleased
+        ? 'Your room and building access information is available in the portal now.'
+        : 'Your room and building access codes will appear in the portal as soon as SEM releases them.';
+
+    return `<!doctype html><html><body style="margin:0;background:#f5f2ec;font-family:Arial,sans-serif;color:#211e1a">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="padding:28px 14px;background:#f5f2ec"><tr><td align="center">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:660px;background:#fffdf9;border:2px solid #c7a66d;border-radius:22px;overflow:hidden">
+        <tr><td style="padding:26px 30px;background:#171612;color:#fff">
+          <div style="font-size:11px;font-weight:800;letter-spacing:.18em;color:#e6c991">IMPORTANT - KEEP THIS EMAIL</div>
+          <div style="margin-top:10px;font-size:27px;font-weight:800">Your stay portal is active</div>
+        </td></tr>
+        <tr><td style="padding:30px">
+          <p style="margin:0;font-size:16px;line-height:1.7">Hi ${firstName}, your online check-in for <strong>${propertyName}</strong> is complete.</p>
+          <p style="margin:18px 0;font-size:14px;line-height:1.7;color:#625b52">This email contains the private link you should keep for your entire stay. The Guest Portal is where you can return for <strong>room/building access codes, Wi-Fi, check-in and checkout instructions, property information, transfers, services and support</strong>.</p>
+          <div style="margin:20px 0;padding:16px;border-radius:14px;background:#f7f0e4;font-size:13px;font-weight:700;color:#6b5233">${escapeHtml(accessMessage)}</div>
+          <p style="margin:26px 0"><a href="${escapeHtml(portalUrl)}" style="display:inline-block;background:#171612;color:#fff;text-decoration:none;font-weight:800;padding:14px 22px;border-radius:999px">Open my Guest Portal</a></p>
+          <p style="margin:0;font-size:12px;line-height:1.6;color:#8a8176">Private stay link: <a href="${escapeHtml(portalUrl)}" style="color:#72583a">${escapeHtml(portalUrl)}</a><br>Please do not forward this email because the portal can contain access credentials for your room.</p>
+        </td></tr>
+      </table>
+    </td></tr></table></body></html>`;
+}
+
+function buildBookingConfirmationPdf(reservation) {
+    return new Promise((resolve, reject) => {
+        const doc = new PDFDocument({ size: 'A4', margin: 48, info: { Title: `SEM Booking Confirmation ${reservation.id || ''}` } });
+        const chunks = [];
+        doc.on('data', (chunk) => chunks.push(chunk));
+        doc.on('end', () => resolve(Buffer.concat(chunks)));
+        doc.on('error', reject);
+
+        doc.rect(0, 0, 595.28, 112).fill('#0b2f7f');
+        doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(28).text('SEM', 48, 34);
+        doc.fontSize(13).text('BOOKING CONFIRMATION', 48, 72);
+
+        doc.fillColor('#102a5e').font('Helvetica').fontSize(12).text('Booking reference', 48, 150);
+        doc.font('Helvetica-Bold').fontSize(27).text(pdfSafe(reservation.id || ''), 48, 170);
+
+        doc.moveDown(2);
+        doc.font('Helvetica-Bold').fontSize(22).text('Your stay', 48, 235);
+        doc.moveTo(48, 268).lineTo(547, 268).strokeColor('#d8e0ec').stroke();
+
+        const rows = [
+            ['Property', reservation.propertyName || 'SEM Property'],
+            ['Check-in', formatDateForGuest(reservation.arrivalDate)],
+            ['Check-out', formatDateForGuest(reservation.departureDate)],
+            ['Room', [reservation.roomNumber, reservation.roomType].filter(Boolean).join(' - ') || 'To be assigned'],
+            ['Guest', reservation.guestName || 'Guest'],
+            ['Email', reservation.guestEmail || ''],
+        ];
+        let y = 292;
+        for (const [label, value] of rows) {
+            doc.fillColor('#667085').font('Helvetica').fontSize(11).text(pdfSafe(label), 48, y, { width: 110 });
+            doc.fillColor('#102a5e').font('Helvetica-Bold').fontSize(12).text(pdfSafe(value), 165, y, { width: 360 });
+            y += 34;
+        }
+
+        doc.roundedRect(48, y + 14, 499, 92, 10).fill('#f3f6fb');
+        doc.fillColor('#102a5e').font('Helvetica-Bold').fontSize(14).text('Reservation confirmed', 68, y + 35);
+        doc.fillColor('#5d6b82').font('Helvetica').fontSize(10.5).text(
+            'Keep this PDF for your records. A separate email contains your private SEM Guest Portal link for online check-in and stay information.',
+            68, y + 58, { width: 455, lineGap: 3 }
+        );
+
+        doc.fillColor('#98a2b3').fontSize(9).text('SEM Estate & Mobility', 48, 780, { align: 'center', width: 499 });
+        doc.end();
+    });
+}
+
+async function successfulMessageExists(portalId, messageType) {
+    const rows = await db.query(
+        `SELECT id FROM guest_portal_messages WHERE guest_portal_id=? AND message_type=? AND status='sent' LIMIT 1`,
+        [portalId, messageType]
+    );
+    return rows.length > 0;
+}
+
+async function sendTypedEmail({ portal, to, messageType, subject, html, attachments = [], priority = 'normal', force = false }) {
+    if (!force && await successfulMessageExists(portal.id, messageType)) {
+        return { sent: false, skipped: true, status: 'already_sent', messageType };
+    }
+
+    const transporter = createTransporter();
+    if (!transporter) {
+        await db.query(
+            `INSERT INTO guest_portal_messages (guest_portal_id, message_type, recipient, subject, status, error_message) VALUES (?, ?, ?, ?, 'not_configured', ?)`,
+            [portal.id, messageType, to, subject, 'SMTP is not configured on the backend.']
+        );
+        return { sent: false, skipped: false, status: 'not_configured', messageType };
+    }
+
+    const from = process.env.GUEST_EMAIL_FROM || process.env.SMTP_FROM || process.env.SMTP_USER;
+    try {
+        const info = await transporter.sendMail({
+            from,
+            to,
+            subject,
+            html,
+            attachments,
+            priority,
+            headers: priority === 'high'
+                ? { Importance: 'high', 'X-Priority': '1', 'X-MSMail-Priority': 'High' }
+                : undefined,
+        });
+        await db.query(
+            `INSERT INTO guest_portal_messages (guest_portal_id, message_type, recipient, subject, status, provider_message_id) VALUES (?, ?, ?, ?, 'sent', ?)`,
+            [portal.id, messageType, to, subject, info.messageId || null]
+        );
+        return { sent: true, skipped: false, status: 'sent', messageType, messageId: info.messageId || null };
+    } catch (error) {
+        await db.query(
+            `INSERT INTO guest_portal_messages (guest_portal_id, message_type, recipient, subject, status, error_message) VALUES (?, ?, ?, ?, 'failed', ?)`,
+            [portal.id, messageType, to, subject, String(error.message || error)]
+        );
+        throw Object.assign(error, { status: 502, code: 'GUEST_EMAIL_SEND_FAILED' });
+    }
 }
 
 async function createOrRefreshPortal(reservation) {
     await ensureTables();
-    const token = crypto.randomBytes(32).toString('base64url');
+    const token = portalTokenForReservation(reservation.id);
     const hash = tokenHash(token);
     const snapshot = publicReservationSnapshot(reservation);
     const departure = snapshot.departureDate ? new Date(`${snapshot.departureDate}T23:59:59`) : null;
@@ -238,33 +458,123 @@ async function createOrRefreshPortal(reservation) {
     ]);
 
     const rows = await db.query(`SELECT id FROM guest_portals WHERE source='cloudbeds' AND external_reservation_id=? LIMIT 1`, [String(reservation.id)]);
-    return { id: rows[0]?.id, token, reservation: snapshot, checkinUrl: `${FRONTEND_URL}/guest/${token}/check-in`, portalUrl: `${FRONTEND_URL}/guest/${token}`, expiresAt };
+    return {
+        id: rows[0]?.id,
+        token,
+        reservation: snapshot,
+        checkinUrl: `${FRONTEND_URL}/guest/${token}/check-in`,
+        portalUrl: `${FRONTEND_URL}/guest/${token}`,
+        expiresAt,
+    };
+}
+
+async function findReservationWithRetry(reservationId) {
+    const delays = [0, 1000, 2500, 5000, 8000];
+    for (const delay of delays) {
+        if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+        const reservation = await findReservation(reservationId);
+        if (reservation) return reservation;
+    }
+    return null;
+}
+
+async function sendBookingConfirmation(reservation, portal, force = false) {
+    const pdf = await buildBookingConfirmationPdf(portal.reservation);
+    const propertyName = portal.reservation.propertyName || 'SEM Property';
+    const subject = `Reservation confirmed - ${propertyName} - ${portal.reservation.arrivalDate || ''} to ${portal.reservation.departureDate || ''}`;
+    return sendTypedEmail({
+        portal,
+        to: reservation.guestEmail,
+        messageType: 'booking_confirmation',
+        subject,
+        html: bookingConfirmationHtml(portal.reservation),
+        attachments: [{
+            filename: `SEM-Booking-${String(portal.reservation.id || 'confirmation').replace(/[^A-Za-z0-9._-]/g, '_')}.pdf`,
+            content: pdf,
+            contentType: 'application/pdf',
+        }],
+        force,
+    });
+}
+
+async function sendPortalInvite(reservation, portal, force = false) {
+    const propertyName = portal.reservation.propertyName || 'SEM Property';
+    const subject = `Complete your Guest Portal - ${propertyName} - ${portal.reservation.arrivalDate || ''} to ${portal.reservation.departureDate || ''}`;
+    const result = await sendTypedEmail({
+        portal,
+        to: reservation.guestEmail,
+        messageType: 'portal_invite',
+        subject,
+        html: portalInviteHtml(portal),
+        force,
+    });
+    if (result.sent) {
+        await db.query(`UPDATE guest_portals SET sent_at=NOW(), status=IF(status='completed','completed','invited') WHERE id=?`, [portal.id]);
+    }
+    return result;
+}
+
+async function sendAutomaticReservationEmails(reservationId) {
+    if (String(process.env.GUEST_AUTO_EMAILS || 'true').toLowerCase() === 'false') {
+        return { skipped: true, reason: 'disabled' };
+    }
+
+    const reservation = await findReservationWithRetry(reservationId);
+    if (!reservation) {
+        throw Object.assign(new Error('Reservation was not available from Cloudbeds after retrying.'), { status: 404, code: 'RESERVATION_NOT_FOUND' });
+    }
+    if (!reservation.guestEmail) {
+        return { skipped: true, reason: 'guest_email_missing', reservationId: String(reservationId) };
+    }
+    if (['cancelled', 'canceled', 'no_show'].includes(String(reservation.status || '').toLowerCase())) {
+        return { skipped: true, reason: 'reservation_not_active', reservationId: String(reservationId) };
+    }
+
+    const portal = await createOrRefreshPortal(reservation);
+    const results = {};
+
+    try {
+        results.bookingConfirmation = await sendBookingConfirmation(reservation, portal, false);
+    } catch (error) {
+        console.error('❌ [BOOKING CONFIRMATION EMAIL]:', error.message);
+        results.bookingConfirmation = { sent: false, status: 'failed', error: error.message };
+    }
+
+    try {
+        results.portalInvite = await sendPortalInvite(reservation, portal, false);
+    } catch (error) {
+        console.error('❌ [GUEST PORTAL INVITE EMAIL]:', error.message);
+        results.portalInvite = { sent: false, status: 'failed', error: error.message };
+    }
+
+    return { reservationId: String(reservationId), portalUrl: portal.portalUrl, ...results };
 }
 
 async function sendInstructions(reservationId) {
-    const reservation = await findReservation(reservationId);
+    const reservation = await findReservationWithRetry(reservationId);
     if (!reservation) throw Object.assign(new Error('Reservation was not found in the connected Cloudbeds property.'), { status: 404, code: 'RESERVATION_NOT_FOUND' });
     if (!reservation.guestEmail) throw Object.assign(new Error('This reservation has no guest email in Cloudbeds.'), { status: 422, code: 'GUEST_EMAIL_MISSING' });
 
     const portal = await createOrRefreshPortal(reservation);
-    const transporter = createTransporter();
-    if (!transporter) {
-        await db.query(`INSERT INTO guest_portal_messages (guest_portal_id, recipient, subject, status, error_message) VALUES (?, ?, ?, 'not_configured', ?)`,
-            [portal.id, reservation.guestEmail, 'Your SEM Guest Portal', 'SMTP is not configured on the backend.']);
-        return { ...portal, emailSent: false, emailStatus: 'not_configured', message: 'Secure guest link created, but SMTP is not configured.' };
-    }
+    const email = await sendPortalInvite(reservation, portal, true);
+    return { ...portal, emailSent: email.sent, emailStatus: email.status, messageType: 'portal_invite' };
+}
 
-    const from = process.env.GUEST_EMAIL_FROM || process.env.SMTP_FROM || process.env.SMTP_USER;
-    const subject = `Your SEM Guest Portal – ${portal.reservation.propertyName}`;
-    try {
-        const info = await transporter.sendMail({ from, to: reservation.guestEmail, subject, html: emailHtml({ guestName: reservation.guestName, propertyName: portal.reservation.propertyName, checkinUrl: portal.checkinUrl, portalUrl: portal.portalUrl }) });
-        await db.query(`UPDATE guest_portals SET sent_at=NOW(), status=IF(status='completed','completed','invited') WHERE id=?`, [portal.id]);
-        await db.query(`INSERT INTO guest_portal_messages (guest_portal_id, recipient, subject, status, provider_message_id) VALUES (?, ?, ?, 'sent', ?)`, [portal.id, reservation.guestEmail, subject, info.messageId || null]);
-        return { ...portal, emailSent: true, emailStatus: 'sent' };
-    } catch (error) {
-        await db.query(`INSERT INTO guest_portal_messages (guest_portal_id, recipient, subject, status, error_message) VALUES (?, ?, ?, 'failed', ?)`, [portal.id, reservation.guestEmail, subject, String(error.message || error)]);
-        throw Object.assign(error, { status: 502, code: 'GUEST_EMAIL_SEND_FAILED' });
-    }
+async function sendCompletionEmail(token, portal) {
+    const reservation = portal.reservation || {};
+    if (!reservation.guestEmail) return { sent: false, status: 'guest_email_missing' };
+    const portalUrl = `${FRONTEND_URL}/guest/${token}`;
+    const subject = `IMPORTANT - Keep this email: ${reservation.propertyName || 'SEM Property'} Guest Portal & room access`;
+
+    return sendTypedEmail({
+        portal: { id: portal.id },
+        to: reservation.guestEmail,
+        messageType: 'portal_completed',
+        subject,
+        html: completedPortalHtml(portalUrl, reservation, portal.stayInfo || {}),
+        priority: 'high',
+        force: false,
+    });
 }
 
 function mapStayInfo(row, includeSecrets) {
