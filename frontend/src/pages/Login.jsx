@@ -16,8 +16,9 @@ const Login = () => {
         setError('');
         try {
             const data = await loginStep1(email, password);
+            if (data?.authenticated) return;
             setUserId(data.userId);
-            setIs2FAStep(true);
+            setIs2FAStep(Boolean(data?.requires2FA));
         } catch (err) {
             setError(err.response?.data?.error || 'Σφάλμα κατά τη σύνδεση');
         }
