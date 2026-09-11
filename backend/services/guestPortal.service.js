@@ -671,7 +671,17 @@ async function saveCheckin(token, payload) {
         const existing = await db.query(`SELECT id FROM guest_service_requests WHERE guest_portal_id=? AND service_id=? LIMIT 1`, [portal.id, addon.id]);
         if (!existing.length) await createServiceRequest(token, { serviceId: addon.id, quantity: 1, guestNotes: 'Requested during online check-in' });
     }
-    return getPortalByToken(token, false);
+
+    const completedPortal = await getPortalByToken(token, false);
+    let completionEmail;
+    try {
+        completionEmail = await sendCompletionEmail(token, completedPortal);
+    } catch (error) {
+        console.error('❌ [GUEST PORTAL COMPLETION EMAIL]:', error.message);
+        completionEmail = { sent: false, status: 'failed', error: error.message };
+    }
+
+    return { ...completedPortal, completionEmail };
 }
 
 async function createServiceRequest(token, payload) {
@@ -761,6 +771,6 @@ async function updateServiceRequestStatus(requestId, status) {
 }
 
 module.exports = {
-    sendInstructions, getPortalByToken, saveCheckin, createServiceRequest, createTransferRequest,
+    sendInstructions, sendAutomaticReservationEmails, getPortalByToken, saveCheckin, createServiceRequest, createTransferRequest,
     getReservationPortalStatus, getReservationManagement, saveStayInfo, saveCatalog, updateServiceRequestStatus,
 };
