@@ -16,6 +16,8 @@ services:
     command: node server.js
     env_file:
       - /home/deployer/pms-secrets/backend.env
+    volumes:
+      - ./frontend/src/assets/sem-logo.webp:/brand/sem-logo.webp:ro
     ports:
       - "5000:5000"
     environment:
@@ -25,6 +27,7 @@ services:
       - DB_PASSWORD=root
       - DB_NAME=sem_pms_db
       - DB_PORT=3306
+      - BRAND_LOGO_PATH=/brand/sem-logo.webp
       - CLOUDBEDS_AUTH_SCOPES=read:customFields,read:dashboard,read:guest,write:guest,read:hotel,read:housekeeping,write:housekeeping,read:reservation,write:reservation,read:resourceReservations,read:room,read:roomblock,write:roomblock,read:addon,read:item,write:item,read:currency,read:payment,read:rate,read:taxesAndFees
     depends_on:
       - db
