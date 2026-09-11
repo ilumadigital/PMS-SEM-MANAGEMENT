@@ -11,13 +11,18 @@ function escapeHtml(value) {
 }
 
 function sendError(res, error, fallbackStatus = 500) {
-    const status = error.status || fallbackStatus;
+    const upstreamStatus = Number(error.status || 0);
+    const status = [401, 403].includes(upstreamStatus) ? 409 : (error.status || fallbackStatus);
     console.error('❌ [CLOUDBEDS]:', error.message);
 
     return res.status(status).json({
         success: false,
-        error: error.code || 'CLOUDBEDS_ERROR',
-        message: error.message,
+        error: [401, 403].includes(upstreamStatus)
+            ? 'CLOUDBEDS_REAUTHORIZATION_REQUIRED'
+            : (error.code || 'CLOUDBEDS_ERROR'),
+        message: [401, 403].includes(upstreamStatus)
+            ? 'Cloudbeds authorization is no longer valid for this operation. Reconnect Cloudbeds from Settings.'
+            : error.message,
         requestId: error.requestId || null,
         details: error.details || error.cloudbedsPayload || null,
     });
