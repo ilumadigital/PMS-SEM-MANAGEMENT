@@ -18,6 +18,8 @@ function sendError(res, error, fallbackStatus = 500) {
         success: false,
         error: error.code || 'CLOUDBEDS_ERROR',
         message: error.message,
+        requestId: error.requestId || null,
+        details: error.details || error.cloudbedsPayload || null,
     });
 }
 
