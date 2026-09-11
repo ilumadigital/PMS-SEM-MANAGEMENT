@@ -9,7 +9,11 @@ const protect = (req, res, next) => {
     }
 
     if (!token) {
-        return res.status(401).json({ error: 'Δεν επιτρέπεται η πρόσβαση. Λείπει το Token.' });
+        return res.status(401).json({
+            error: 'Δεν επιτρέπεται η πρόσβαση. Λείπει το Token.',
+            message: 'Η συνεδρία σας έληξε. Συνδεθείτε ξανά.',
+            code: 'AUTH_TOKEN_MISSING',
+        });
     }
 
     try {
@@ -18,7 +22,11 @@ const protect = (req, res, next) => {
         req.user = decoded; // Προσθήκη των στοιχείων του χρήστη (id, role) στο request object
         next();
     } catch (error) {
-        return res.status(401).json({ error: 'Μη έγκυρο ή ληγμένο Token.' });
+        return res.status(401).json({
+            error: 'Μη έγκυρο ή ληγμένο Token.',
+            message: 'Η συνεδρία σας έληξε. Συνδεθείτε ξανά.',
+            code: 'AUTH_TOKEN_INVALID',
+        });
     }
 };
 
