@@ -4,6 +4,7 @@ import { AuthContext } from '../context/AuthContext';
 import { CloudbedsDataContext } from '../context/CloudbedsDataContext';
 import { initials } from './PmsUi';
 import PmsAutoRefreshBridge from './PmsAutoRefreshBridge';
+import SemLogo from './SemLogo';
 
 const Icon = ({ name, className = 'h-5 w-5' }) => {
   const paths = {
@@ -71,10 +72,9 @@ const AppShell = () => {
     <div className="flex h-full flex-col overflow-hidden bg-[#0b1220] text-slate-200">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_0%,rgba(37,99,235,0.18),transparent_34%),radial-gradient(circle_at_90%_90%,rgba(14,165,233,0.10),transparent_30%)]" />
       <div className="relative flex h-[72px] items-center border-b border-white/[0.08] px-5">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 text-sm font-bold text-white shadow-lg shadow-blue-950/30">S</div>
-        <div className="ml-3.5 min-w-0">
-          <div className="text-[15px] font-semibold tracking-[-0.01em] text-white">SEM PMS</div>
-          <div className="mt-0.5 text-[11px] font-normal text-slate-400">Estate & Mobility Operations</div>
+        <div className="min-w-0">
+          <SemLogo inverted className="h-8 w-auto max-w-[148px]" />
+          <div className="mt-1 text-[10px] font-medium tracking-[0.04em] text-slate-400">Estate & Mobility Operations</div>
         </div>
       </div>
 
