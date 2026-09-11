@@ -434,13 +434,13 @@ async function createReservation(payload = {}, actor = {}) {
         [requestKey, propertyId, roomId, startDate, endDate]
     );
 
-    // Cloudbeds v1.3 supports roomID directly inside rooms/adults/children. Using it
-    // here creates the reservation and requested physical-room relationship in the
-    // same operation instead of first creating a room-type booking and racing a
-    // second assignment request afterwards.
-    const roomLine = { roomTypeID: roomTypeId, roomID: roomId, quantity: 1 };
+    // postReservation sells inventory by room type. Physical-room assignment is
+    // verified separately and, when needed, applied with postRoomAssign. Keeping
+    // roomID out of the create payload matches the documented v1.3 contract and
+    // avoids Cloudbeds rejecting or silently ignoring the reservation write.
+    const roomLine = { roomTypeID: roomTypeId, quantity: 1 };
     const suppliedRateId = payload.roomRateId || payload.roomRateID || payload.rateId || payload.rateID;
-    if (suppliedRateId) roomLine.roomRateID = String(suppliedRateId);
+    if (suppliedRateId) roomLine.rateID = String(suppliedRateId);
 
     const form = {
         propertyID: propertyId,
@@ -453,8 +453,8 @@ async function createReservation(payload = {}, actor = {}) {
         guestZip,
         guestEmail: email,
         rooms: [roomLine],
-        adults: [{ roomTypeID: roomTypeId, roomID: roomId, quantity: adults }],
-        children: [{ roomTypeID: roomTypeId, roomID: roomId, quantity: children }],
+        adults: [{ roomTypeID: roomTypeId, quantity: adults }],
+        children: [{ roomTypeID: roomTypeId, quantity: children }],
         paymentMethod,
         sendEmailConfirmation: payload.sendEmailConfirmation !== false,
     };
@@ -462,7 +462,7 @@ async function createReservation(payload = {}, actor = {}) {
     const phone = String(payload.phone || payload.guestPhone || '').trim();
     if (phone) form.guestPhone = phone;
     const arrivalTime = normalizeTime(payload.arrivalTime || payload.estimatedArrivalTime);
-    if (arrivalTime) form.estimatedArrivalTime = arrivalTime;
+    if (arrivalTime) form.guestRequirements = [{ estimatedArrivalTime: arrivalTime }];
     if (payload.sourceId || payload.sourceID) form.sourceID = String(payload.sourceId || payload.sourceID);
     if (payload.thirdPartyIdentifier) form.thirdPartyIdentifier = String(payload.thirdPartyIdentifier);
     if (Array.isArray(payload.customFields) && payload.customFields.length) form.customFields = payload.customFields;
