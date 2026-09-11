@@ -3,6 +3,7 @@ const router = express.Router();
 const operations = require('../services/cloudbedsOperations.service');
 const reservationCreator = require('../services/cloudbedsReservationCreate.service');
 const roomAssignments = require('../services/cloudbedsRoomAssignment.service');
+const guestPortalService = require('../services/guestPortal.service');
 const { protect, restrictTo } = require('../middleware/auth.middleware');
 
 const actor = (req) => ({ userId: req.user?.userId, role: req.user?.role });
@@ -99,6 +100,17 @@ router.post('/reservations', protect, restrictTo(...CREATE_ROLES), async (req, r
                     details: assignmentError.details || null,
                 };
             }
+        }
+
+        try {
+            data.guestJourney = await guestPortalService.sendAutomaticReservationEmails(data.reservationId);
+        } catch (emailError) {
+            console.error('❌ [GUEST JOURNEY EMAILS]:', emailError.message);
+            data.guestJourney = {
+                sent: false,
+                status: 'failed',
+                error: emailError.message,
+            };
         }
 
         res.status(201).json({
