@@ -45,9 +45,9 @@ jobs:
             ENV_FILE=/home/deployer/pms-secrets/backend.env
             test -f "$ENV_FILE" || { echo "$ENV_FILE is missing on VPS"; exit 1; }
 
-            echo "Validate Cloudbeds automatic-delivery configuration"
-            for VAR in CLOUDBEDS_CLIENT_ID CLOUDBEDS_CLIENT_SECRET CLOUDBEDS_REDIRECT_URI; do
-              grep -Eq "^${VAR}=.+" "$ENV_FILE" || { echo "Missing required Cloudbeds variable: $VAR"; exit 1; }
+            echo "Validate production secrets"
+            for VAR in CLOUDBEDS_CLIENT_ID CLOUDBEDS_CLIENT_SECRET CLOUDBEDS_REDIRECT_URI JWT_SECRET SMTP_HOST SMTP_USER SMTP_PASS SMTP_FROM; do
+              grep -Eq "^${VAR}=.+" "$ENV_FILE" || { echo "Missing required production variable: $VAR"; exit 1; }
             done
 
             if grep -Eq '^CLOUDBEDS_ENVIRONMENT=.+' "$ENV_FILE" && ! grep -Eq '^CLOUDBEDS_ENVIRONMENT=sandbox$' "$ENV_FILE"; then
