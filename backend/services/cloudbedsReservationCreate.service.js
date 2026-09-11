@@ -456,7 +456,9 @@ async function createReservation(payload = {}, actor = {}) {
         adults: [{ roomTypeID: roomTypeId, quantity: adults }],
         children: [{ roomTypeID: roomTypeId, quantity: children }],
         paymentMethod,
-        sendEmailConfirmation: payload.sendEmailConfirmation !== false,
+        // SEM sends its own branded booking confirmation + Guest Portal emails.
+        // Keep Cloudbeds' native confirmation off by default to avoid duplicate guest emails.
+        sendEmailConfirmation: payload.sendEmailConfirmation === true,
     };
 
     const phone = String(payload.phone || payload.guestPhone || '').trim();
