@@ -43,17 +43,24 @@ const SettingsPage = () => {
   const requestedScopes = runtime?.authorizationScopes || runtime?.requiredScopes || status?.requiredScopes || [];
   const connectionStatus = error ? 'error' : ready ? 'healthy' : authorized ? 'review' : 'not connected';
   const writeScopes = requestedScopes.filter((scope)=>String(scope).startsWith('write:'));
-  const writeScopeFailure = audit.find((item) => {
-    const message = String(item.errorMessage || '').toLowerCase();
-    return item.status === 'failed' && (message.includes('scope required') || message.includes('not granted by property') || message.includes('permission'));
-  });
+  // Audit rows are returned newest-first. Only the latest write result should
+  // control the warning: a newer successful write clears any older failures.
+  const latestWrite = audit[0] || null;
+  const latestWriteFailed = latestWrite?.status === 'failed';
+  const latestWriteMessage = String(latestWrite?.errorMessage || '').toLowerCase();
+  const latestWritePermissionFailure = latestWriteFailed && (
+    latestWriteMessage.includes('scope required') ||
+    latestWriteMessage.includes('not granted by property') ||
+    latestWriteMessage.includes('permission') ||
+    latestWriteMessage.includes('authorization')
+  );
 
   return <div className="space-y-6">
     <PageHeader title="Settings" description="Cloudbeds two-way integration, write permissions, audit and PMS defaults." actions={<div className="flex flex-wrap gap-2"><button onClick={refresh} disabled={loading} className="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60">{loading ? 'Checking…' : 'Test sync'}</button>{authorized ? <button onClick={reauthorize} className="rounded-lg bg-amber-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-amber-700">Re-authorize Cloudbeds</button> : <button onClick={connect} className="rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-blue-700">Connect Cloudbeds</button>}</div>} />
 
     {(error || runtimeError) && <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3"><div className="text-sm font-semibold text-rose-800">Configuration issue</div><div className="mt-1 text-xs text-rose-700">{error || runtimeError}</div></div>}
 
-    {authorized && writeScopeFailure && <div className="flex flex-col gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-4 sm:flex-row sm:items-center sm:justify-between"><div><div className="text-sm font-black text-amber-950">Cloudbeds write permissions are missing on the current API key</div><div className="mt-1 text-xs font-medium text-amber-800">The property accepted read access, but write calls are being rejected. Re-authorize once so Cloudbeds can issue a new key with reservation, guest and housekeeping write scopes.</div></div><button onClick={reauthorize} className="shrink-0 rounded-lg bg-amber-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-amber-700">Re-authorize now</button></div>}
+    {authorized && latestWriteFailed && <div className="flex flex-col gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-4 sm:flex-row sm:items-center sm:justify-between"><div><div className="text-sm font-black text-amber-950">{latestWritePermissionFailure ? 'Cloudbeds write permissions are missing on the current API key' : 'The latest Cloudbeds write failed'}</div><div className="mt-1 text-xs font-medium text-amber-800">{latestWritePermissionFailure ? 'The latest write was rejected by Cloudbeds authorization. Re-authorize so Cloudbeds can issue a new key with the required write scopes.' : (latestWrite?.errorMessage || 'The latest write operation failed. Check the audit details and retry.')}</div></div>{latestWritePermissionFailure && <button onClick={reauthorize} className="shrink-0 rounded-lg bg-amber-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-amber-700">Re-authorize now</button>}</div>}
 
     <div className="grid grid-cols-2 gap-4 xl:grid-cols-6">
       <MetricCard label="Reservations" value={loading ? '…' : reservations.length}/><MetricCard label="Guests" value={loading ? '…' : customers.length}/><MetricCard label="Rooms" value={loading ? '…' : rooms.length}/><MetricCard label="Housekeeping" value={loading ? '…' : housekeeping.length}/><MetricCard label="Write scopes" value={writeScopes.length} tone={writeScopes.length?'blue':'default'}/><MetricCard label="Sync state" value={ready ? 'Ready' : authorized ? 'Review' : 'Offline'} tone={ready ? 'green' : authorized ? 'amber' : 'default'}/>
