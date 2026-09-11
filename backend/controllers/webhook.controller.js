@@ -1,11 +1,36 @@
 const db = require('../config/db');
 const cloudbedsOperations = require('../services/cloudbedsOperations.service');
+const guestPortalService = require('../services/guestPortal.service');
 
 const cloudbedsStatus = (value) => {
     const status = String(value || '').toLowerCase();
     if (status === 'canceled') return 'cancelled';
     if (status === 'checked_in') return 'in_house';
     return status || 'confirmed';
+};
+
+const cloudbedsReservationId = (payload = {}, fallback = null) => (
+    payload.reservationID ||
+    payload.reservationId ||
+    payload.data?.reservationID ||
+    payload.data?.reservationId ||
+    payload.data?.id ||
+    payload.resource?.reservationID ||
+    payload.resource?.reservationId ||
+    fallback ||
+    null
+);
+
+const scheduleGuestJourney = (reservationId, eventName) => {
+    if (!reservationId) return;
+    const event = String(eventName || '').toLowerCase();
+    if (event && !event.includes('reservation') && !event.includes('booking')) return;
+
+    setTimeout(() => {
+        guestPortalService.sendAutomaticReservationEmails(String(reservationId))
+            .then((result) => console.log('📧 [GUEST JOURNEY]', reservationId, result?.bookingConfirmation?.status || result?.reason || 'processed'))
+            .catch((error) => console.error('❌ [GUEST JOURNEY WEBHOOK]:', reservationId, error.message));
+    }, 1200);
 };
 
 const handleCloudbeds = async (payload, res) => {
@@ -17,11 +42,14 @@ const handleCloudbeds = async (payload, res) => {
     // acknowledge these immediately instead of trying to treat every event as a
     // full reservation object and accidentally returning 404/retry storms.
     if (payload?.event) {
+        const reservationId = cloudbedsReservationId(payload, eventMeta.externalId);
+        scheduleGuestJourney(reservationId, payload.event);
+
         return res.status(200).json({
             success: true,
             accepted: true,
             event: payload.event,
-            externalId: eventMeta.externalId || null,
+            externalId: reservationId || eventMeta.externalId || null,
             message: 'Cloudbeds event accepted; live PMS data will be re-fetched from Cloudbeds.',
         });
     }
@@ -81,6 +109,7 @@ const handleCloudbeds = async (payload, res) => {
         }
     }
 
+    scheduleGuestJourney(channelResId, 'reservation.legacy');
     return res.status(200).json({ success: true, accepted: true, mapped: true });
 };
 
