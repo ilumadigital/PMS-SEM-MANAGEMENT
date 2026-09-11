@@ -29,6 +29,21 @@ api.interceptors.response.use((response) => {
         }));
     }
     return response;
-}, (error) => Promise.reject(error));
+}, (error) => {
+    const status = Number(error.response?.status || 0);
+    const url = String(error.config?.url || '');
+
+    if (
+        typeof window !== 'undefined' &&
+        status === 401 &&
+        !url.startsWith('/auth/')
+    ) {
+        localStorage.removeItem('sem_jwt_token');
+        localStorage.removeItem('sem_user');
+        window.location.reload();
+    }
+
+    return Promise.reject(error);
+});
 
 export default api;
