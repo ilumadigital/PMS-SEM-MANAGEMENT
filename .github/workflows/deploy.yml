@@ -46,8 +46,9 @@ jobs:
             test -f "$ENV_FILE" || { echo "$ENV_FILE is missing on VPS"; exit 1; }
 
             echo "Ensure a persistent JWT secret exists"
+            sed -i 's/\\\\nJWT_SECRET=[^\\\\]*\\\\n//g' "$ENV_FILE"
             if ! grep -Eq '^JWT_SECRET=.+' "$ENV_FILE"; then
-              printf '\\nJWT_SECRET=%s\\n' "$(openssl rand -hex 48)" >> "$ENV_FILE"
+              printf '\nJWT_SECRET=%s\n' "$(openssl rand -hex 48)" >> "$ENV_FILE"
               echo "Generated JWT_SECRET in protected VPS env file"
             fi
 
