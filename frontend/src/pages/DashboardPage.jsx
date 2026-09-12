@@ -1,6 +1,7 @@
-import React, { useContext, useMemo, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import { CloudbedsDataContext } from '../context/CloudbedsDataContext';
+import api from '../services/api';
 import {
   EmptyState,
   PageHeader,
@@ -55,9 +56,18 @@ const DashboardPage = () => {
   const [savingKey, setSavingKey] = useState('');
   const [notice, setNotice] = useState('');
   const [localError, setLocalError] = useState('');
+  const [cleaningAssignments, setCleaningAssignments] = useState([]);
 
   const today = todayKey();
   const tomorrow = addDaysKey(1);
+
+  useEffect(() => {
+    let active = true;
+    api.get('/management/housekeeping-assignments', { params: { from: today, to: today } })
+      .then(({ data }) => { if (active) setCleaningAssignments(Array.isArray(data) ? data : []); })
+      .catch(() => { if (active) setCleaningAssignments([]); });
+    return () => { active = false; };
+  }, [today]);
 
   const propertyName = (propertyId) =>
     properties.find((property) => String(property.id) === String(propertyId))?.name || 'Cloudbeds Property';
@@ -112,6 +122,9 @@ const DashboardPage = () => {
     const incoming = checkinToday || checkinTomorrow || inHouse || null;
     const guestReservation = incoming || checkout || null;
     const hk = housekeeping.find((item) => String(item.roomId) === String(room.id)) || {};
+    const cleaningAssignment = cleaningAssignments.find((item) =>
+      String(item.room_id) === String(room.id) && String(item.task_date || '').slice(0, 10) === today
+    ) || null;
 
     return {
       room,
@@ -120,9 +133,10 @@ const DashboardPage = () => {
       checkOutTime: checkout?.actualDepartureTime || (inHouse?.departureDate === today ? inHouse?.actualDepartureTime : '') || '',
       checkInTime: incoming?.actualArrivalTime || '',
       guestCount: guestCountForRoom(guestReservation, room.id),
+      cleaningAssignment,
       movement: checkinToday ? 'Arrival today' : checkinTomorrow ? 'Arrival tomorrow' : checkout ? 'Checkout today' : inHouse ? 'In house' : 'No movement',
     };
-  }), [scopedRooms, reservations, housekeeping, today, tomorrow, properties]); // eslint-disable-line react-hooks/exhaustive-deps
+  }), [scopedRooms, reservations, housekeeping, cleaningAssignments, today, tomorrow, properties]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const draftValue = (collection, id, key, fallback = '') => {
     const row = collection[String(id)] || {};
@@ -208,6 +222,7 @@ const DashboardPage = () => {
   const todayCount = frontDeskRows.filter((reservation) => reservation.arrivalDate === today).length;
   const tomorrowCount = frontDeskRows.filter((reservation) => reservation.arrivalDate === tomorrow).length;
   const dirtyCount = housekeepingRows.filter((row) => String(row.housekeeping.roomCondition || 'dirty') === 'dirty').length;
+  const cleaningNowCount = housekeepingRows.filter((row) => row.cleaningAssignment?.status === 'in_progress').length;
 
   return (
     <div className="space-y-6">
@@ -358,7 +373,10 @@ const DashboardPage = () => {
       <Panel
         title="2. Housekeeping"
         description="Room readiness and supplies. Check-in time, check-out time and guest count are read automatically from the Front Desk / reservation data."
-        action={<span className="rounded-full bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-700">Dirty {dirtyCount}</span>}
+        action={<div className="flex flex-wrap items-center gap-2">
+          {cleaningNowCount > 0 && <span className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-black text-blue-700"><span className="h-2 w-2 animate-pulse rounded-full bg-blue-500" />Cleaning now {cleaningNowCount}</span>}
+          <span className="rounded-full bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-700">Dirty {dirtyCount}</span>
+        </div>}
       >
         {loading ? (
           <div className="p-8 text-sm text-slate-500">Loading Housekeeping…</div>
@@ -368,6 +386,7 @@ const DashboardPage = () => {
               <tr>
                 <Th>Property</Th>
                 <Th>Room</Th>
+                <Th>Cleaning workflow</Th>
                 <Th>Cleanliness</Th>
                 <Th>Refill</Th>
                 <Th>Extra linens</Th>
@@ -378,17 +397,27 @@ const DashboardPage = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {housekeepingRows.map(({ room, propertyName: roomProperty, housekeeping: hk, checkOutTime, checkInTime, guestCount, movement }) => {
+              {housekeepingRows.map(({ room, propertyName: roomProperty, housekeeping: hk, checkOutTime, checkInTime, guestCount, movement, cleaningAssignment }) => {
                 const conditionFallback = ['clean', 'dirty', 'inspected'].includes(String(hk.roomCondition || '')) ? hk.roomCondition : 'dirty';
                 const condition = draftValue(housekeepingDrafts, room.id, 'roomCondition', conditionFallback);
                 const refill = draftValue(housekeepingDrafts, room.id, 'refill', Boolean(hk.refill));
                 const extraLinens = draftValue(housekeepingDrafts, room.id, 'extraLinens', hk.extraLinens || '');
                 return (
-                  <tr key={room.id} className="align-top hover:bg-slate-50/60">
+                  <tr key={room.id} className={`align-top transition ${cleaningAssignment?.status === 'in_progress' ? 'bg-blue-50/70' : 'hover:bg-slate-50/60'}`}>
                     <Td><div className="max-w-44 text-sm font-semibold text-slate-800">{roomProperty}</div></Td>
                     <Td>
                       <div className="font-bold text-slate-950">{room.roomNumber || room.id}</div>
                       <div className="mt-1 text-[11px] text-slate-400">{room.roomType || 'Room'}</div>
+                    </Td>
+                    <Td>
+                      {cleaningAssignment ? <div className="min-w-36">
+                        <div className="flex items-center gap-2">
+                          {cleaningAssignment.status === 'in_progress' && <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-blue-500" />}
+                          <StatusBadge status={cleaningAssignment.status} />
+                        </div>
+                        <div className="mt-1.5 text-xs font-semibold text-slate-700">{cleaningAssignment.cleaner_name || 'Cleaner'}</div>
+                        {cleaningAssignment.status === 'in_progress' && <div className="mt-1 text-[10px] font-bold uppercase tracking-wide text-blue-600">Cleaning now</div>}
+                      </div> : <span className="text-xs text-slate-400">Not assigned</span>}
                     </Td>
                     <Td>
                       <select
