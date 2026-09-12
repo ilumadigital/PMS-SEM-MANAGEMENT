@@ -9,7 +9,7 @@ const todayKey = () => { const d=new Date(); return `${d.getFullYear()}-${String
 const CleaningMobile = () => {
   const { user } = useContext(AuthContext);
   const {
-    housekeeping, rooms, properties, diagnostics, loading, refresh,
+    housekeeping, rooms, properties, reservations, diagnostics, loading, refresh,
     updateHousekeeping, writeState,
   } = useContext(CloudbedsDataContext);
   const [filter, setFilter] = useState('all');
@@ -23,6 +23,7 @@ const CleaningMobile = () => {
   const [cleaners,setCleaners]=useState([]);
   const [assignments,setAssignments]=useState([]);
   const [assignmentError,setAssignmentError]=useState('');
+  const [linensDraft,setLinensDraft]=useState({});
 
   const loadAssignments = async () => {
     if (!canAssign) return;
@@ -82,6 +83,29 @@ const CleaningMobile = () => {
     return { room, propertyId, property };
   };
 
+  const roomStayContext = (item) => {
+    const today = todayKey();
+    const tomorrowDate = new Date(`${today}T12:00:00`);
+    tomorrowDate.setDate(tomorrowDate.getDate()+1);
+    const tomorrow = `${tomorrowDate.getFullYear()}-${String(tomorrowDate.getMonth()+1).padStart(2,'0')}-${String(tomorrowDate.getDate()).padStart(2,'0')}`;
+    const matchesRoom = (reservation) => {
+      const ids = reservation.roomIds?.length ? reservation.roomIds.map(String) : [String(reservation.roomId || '')];
+      return ids.includes(String(item.roomId)) && !['cancelled','no_show'].includes(String(reservation.status || '').toLowerCase());
+    };
+    const related = reservations.filter(matchesRoom);
+    const checkout = related.find((reservation)=>reservation.departureDate===today);
+    const arrivalToday = related.find((reservation)=>reservation.arrivalDate===today);
+    const arrivalTomorrow = related.find((reservation)=>reservation.arrivalDate===tomorrow);
+    const inHouse = related.find((reservation)=>reservation.arrivalDate<=today && reservation.departureDate>today);
+    const arrival = arrivalToday || arrivalTomorrow || inHouse || null;
+    const guestReservation = arrival || checkout || null;
+    return {
+      checkOutTime: checkout?.actualDepartureTime || checkout?.departureTime || '',
+      checkInTime: arrival?.actualArrivalTime || arrival?.arrivalTime || '',
+      guestCount: Number(guestReservation?.guestCount || 1),
+    };
+  };
+
   const sync = async (item, payload, message) => {
     const { propertyId } = roomContext(item);
     if (!propertyId) { setNotice('Cannot save room status: property ID is missing for this room.'); return; }
@@ -129,12 +153,24 @@ const CleaningMobile = () => {
 
     {rows.length ? <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">{rows.map((item) => {
       const { room, property } = roomContext(item);
+      const stay = roomStayContext(item);
+      const linensValue = Object.prototype.hasOwnProperty.call(linensDraft,String(item.roomId)) ? linensDraft[String(item.roomId)] : (item.extraLinens || '');
       const busy = writeState.syncing && String(selectedRoomId) === String(item.roomId);
       const expanded = String(selectedRoomId) === String(item.roomId) && !busy;
       return <article key={item.roomId || item.roomNumber} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="p-4 sm:p-5">
           <div className="flex items-start justify-between gap-3"><div><div className="text-xl font-black text-slate-950">Room {item.roomNumber || room?.roomNumber || '—'}</div><div className="mt-1 text-xs text-slate-500">{item.roomType || room?.roomType || 'Room'} · {property?.name || 'Cloudbeds property'}</div></div><StatusBadge status={item.roomCondition || item.status || 'not_tracked'} /></div>
-          <div className="mt-4 grid grid-cols-2 gap-2 text-xs"><div className="rounded-xl bg-slate-50 p-3"><div className="text-slate-400">Occupancy</div><div className="mt-1 font-bold text-slate-800">{item.roomOccupied?'Occupied':'Vacant'}</div></div><div className="rounded-xl bg-slate-50 p-3"><div className="text-slate-400">Front desk</div><div className="mt-1 font-bold text-slate-800">{item.frontdeskStatus || '—'}</div></div></div>
+          <div className="mt-4 grid grid-cols-2 gap-2 text-xs sm:grid-cols-5">
+            <div className="rounded-xl bg-slate-50 p-3"><div className="text-slate-400">Occupancy</div><div className="mt-1 font-bold text-slate-800">{item.roomOccupied?'Occupied':'Vacant'}</div></div>
+            <div className="rounded-xl bg-slate-50 p-3"><div className="text-slate-400">Check-out</div><div className="mt-1 font-bold text-slate-800">{stay.checkOutTime ? String(stay.checkOutTime).slice(0,5) : '—'}</div></div>
+            <div className="rounded-xl bg-slate-50 p-3"><div className="text-slate-400">Check-in</div><div className="mt-1 font-bold text-slate-800">{stay.checkInTime ? String(stay.checkInTime).slice(0,5) : '—'}</div></div>
+            <div className="rounded-xl bg-slate-50 p-3"><div className="text-slate-400">Guests</div><div className="mt-1 font-bold text-slate-800">{stay.guestCount || '—'}</div></div>
+            <div className="rounded-xl bg-slate-50 p-3"><div className="text-slate-400">Front desk</div><div className="mt-1 font-bold text-slate-800">{item.frontdeskStatus || '—'}</div></div>
+          </div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-[180px_1fr]">
+            <label className="rounded-xl border border-slate-200 bg-white p-3"><span className="mb-2 block text-[10px] font-black uppercase tracking-wide text-slate-500">Refill</span><select value={item.refill?'yes':'no'} onChange={e=>sync(item,{refill:e.target.value==='yes'},`Room ${item.roomNumber || item.roomId} refill updated.`)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm font-semibold"><option value="no">No</option><option value="yes">Yes</option></select></label>
+            <label className="rounded-xl border border-slate-200 bg-white p-3"><span className="mb-2 block text-[10px] font-black uppercase tracking-wide text-slate-500">Extra linens</span><input value={linensValue} onChange={e=>setLinensDraft({...linensDraft,[String(item.roomId)]:e.target.value})} onBlur={async e=>{if(e.target.value!==String(item.extraLinens||'')){await sync(item,{extraLinens:e.target.value},`Room ${item.roomNumber || item.roomId} extra linens updated.`);} setLinensDraft(current=>{const next={...current};delete next[String(item.roomId)];return next;});}} placeholder="e.g. 2 towels, 1 sheet" className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"/></label>
+          </div>
           {item.comments && <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">{item.comments}</div>}
           <div className="mt-4 grid grid-cols-3 gap-2">
             <button disabled={writeState.syncing} onClick={()=>sync(item,{roomCondition:'dirty'},`Room ${item.roomNumber || item.roomId} marked Dirty.`)} className="min-h-12 rounded-xl border border-amber-200 bg-amber-50 px-2 text-sm font-black text-amber-800 disabled:opacity-40">Dirty</button>
