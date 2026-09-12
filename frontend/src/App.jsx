@@ -19,6 +19,7 @@ import CleaningMobile from './pages/CleaningMobile';
 import ShuttlePage from './pages/ShuttlePage';
 import CleanerSchedulePage from './pages/CleanerSchedulePage';
 import DriverSchedulePage from './pages/DriverSchedulePage';
+import PwaManager from './components/PwaManager';
 
 const role = (user) => String(user?.role || '').toLowerCase();
 const allowed = (user, roles) => roles.includes(role(user));
@@ -61,10 +62,10 @@ const ProtectedRoutes = () => {
 };
 
 function App() {
-  return <BrowserRouter><Routes>
+  return <><PwaManager /><BrowserRouter><Routes>
     <Route path="/guest/:token" element={<GuestPortalPage />} />
     <Route path="/guest/:token/check-in" element={<GuestPortalPage forceCheckin />} />
     <Route path="/*" element={<AuthProvider><ProtectedRoutes /></AuthProvider>} />
-  </Routes></BrowserRouter>;
+  </Routes></BrowserRouter></>;
 }
 export default App;
