@@ -4,9 +4,9 @@ const operationsController = require('../controllers/operations.controller');
 const { protect, restrictTo } = require('../middleware/auth.middleware');
 
 router.get('/revision', protect, operationsController.getRealtimeRevision);
-router.get('/transfers', protect, operationsController.getTransfers);
-router.put('/transfers/:id', protect, operationsController.updateTransfer);
-router.get('/housekeeping-schedule', protect, operationsController.getHousekeepingSchedule);
+router.get('/transfers', protect, restrictTo('admin','manager','management','reception','supervisor','driversadmin','dispatcher'), operationsController.getTransfers);
+router.put('/transfers/:id', protect, restrictTo('admin','manager','management','reception','supervisor','driversadmin','dispatcher'), operationsController.updateTransfer);
+router.get('/housekeeping-schedule', protect, restrictTo('admin','manager','management','reception','supervisor','cleaneradmin'), operationsController.getHousekeepingSchedule);
 
 router.get('/reservations', protect, restrictTo('admin','manager','management','reception','supervisor'), operationsController.getReservationOperations);
 router.put('/reservations/:reservationId', protect, restrictTo('admin','management','reception','supervisor'), operationsController.updateReservationOperation);
