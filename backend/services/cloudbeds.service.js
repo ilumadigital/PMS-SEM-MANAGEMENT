@@ -24,6 +24,7 @@ const DEFAULT_AUTH_SCOPES = [
     'read:guest',
     'read:hotel',
     'read:housekeeping',
+    'write:housekeeping',
     'read:reservation',
     'read:resourceReservations',
     'read:room',
