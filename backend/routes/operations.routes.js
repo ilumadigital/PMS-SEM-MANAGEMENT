@@ -8,7 +8,7 @@ router.get('/transfers', protect, restrictTo('admin','manager','management','rec
 router.put('/transfers/:id', protect, restrictTo('admin','manager','management','reception','supervisor','driversadmin','dispatcher'), operationsController.updateTransfer);
 router.get('/housekeeping-schedule', protect, restrictTo('admin','manager','management','reception','supervisor','cleaneradmin'), operationsController.getHousekeepingSchedule);
 
-router.get('/reservations', protect, restrictTo('admin','manager','management','reception','supervisor'), operationsController.getReservationOperations);
+router.get('/reservations', protect, restrictTo('admin','manager','management','reception','supervisor','cleaneradmin'), operationsController.getReservationOperations);
 router.put('/reservations/:reservationId', protect, restrictTo('admin','management','reception','supervisor'), operationsController.updateReservationOperation);
 
 router.get('/housekeeping', protect, restrictTo('admin','manager','management','reception','supervisor','cleaneradmin'), operationsController.getHousekeepingStatus);
