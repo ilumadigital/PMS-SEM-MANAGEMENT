@@ -203,7 +203,8 @@ async function listReservationOperations() {
 
 async function updateReservationOperation(reservationId, payload = {}, actor = {}) {
     await ensureTables();
-    const status = payload.status == null ? null : String(payload.status).toLowerCase();
+    const requestedStatus = payload.status == null ? null : String(payload.status).toLowerCase();
+    const status = requestedStatus === 'in_house' ? 'checked_in' : requestedStatus;
     if (status && !RESERVATION_STATUSES.includes(status)) {
         const error = new Error('Unsupported local reservation status.'); error.status = 422; throw error;
     }
