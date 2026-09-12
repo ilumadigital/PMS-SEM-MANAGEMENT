@@ -5,9 +5,11 @@ const guestPortalService = require('../services/guestPortal.service');
 const notificationService = require('../services/notification.service');
 
 const router = express.Router();
-const managerRoles = ['admin', 'management'];
-const transferRoles = ['admin', 'management', 'reception', 'supervisor', 'dispatcher', 'driver'];
-const editTransferRoles = ['admin', 'management', 'reception', 'dispatcher'];
+const managerRoles = ['admin', 'manager', 'management'];
+const transferRoles = ['admin', 'manager', 'management', 'reception', 'supervisor', 'driversadmin', 'dispatcher', 'driver'];
+const editTransferRoles = ['admin', 'manager', 'management', 'reception', 'driversadmin', 'dispatcher'];
+const housekeepingAdminRoles = ['admin', 'manager', 'management', 'cleaneradmin'];
+const housekeepingReadRoles = [...housekeepingAdminRoles, 'supervisor', 'cleaner', 'cleaning'];
 const normalizeRole = (req) => String(req.user?.role || '').toLowerCase();
 const allowRoles = (...roles) => (req, res, next) => roles.includes(normalizeRole(req)) ? next() : res.status(403).json({ error: 'Access denied.' });
 
@@ -33,6 +35,7 @@ async function ensureTables() {
     luggage INT NOT NULL DEFAULT 0,
     flight_info VARCHAR(120) NULL,
     driver VARCHAR(120) NULL,
+    driver_user_id INT NULL,
     vehicle VARCHAR(120) NULL,
     notes TEXT NULL,
     free_shuttle TINYINT(1) NOT NULL DEFAULT 1,
@@ -48,6 +51,24 @@ async function ensureTables() {
   try { await db.query(`ALTER TABLE transfers ADD COLUMN IF NOT EXISTS free_shuttle TINYINT(1) NOT NULL DEFAULT 1 AFTER notes`); } catch (_) {}
   try { await db.query(`ALTER TABLE transfers ADD COLUMN IF NOT EXISTS approximate_arrival_time_airport VARCHAR(16) NULL AFTER free_shuttle`); } catch (_) {}
   try { await db.query(`ALTER TABLE transfers ADD COLUMN IF NOT EXISTS cabin_luggages INT NOT NULL DEFAULT 0 AFTER approximate_arrival_time_airport`); } catch (_) {}
+  try { await db.query(`ALTER TABLE transfers ADD COLUMN IF NOT EXISTS driver_user_id INT NULL AFTER driver`); } catch (_) {}
+  await db.query(`CREATE TABLE IF NOT EXISTS housekeeping_assignments (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    property_id VARCHAR(128) NOT NULL,
+    room_id VARCHAR(128) NOT NULL,
+    room_number VARCHAR(128) NULL,
+    room_type VARCHAR(255) NULL,
+    task_date DATE NOT NULL,
+    cleaner_user_id INT NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'assigned',
+    notes TEXT NULL,
+    created_by INT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_housekeeping_room_day (room_id, task_date),
+    INDEX idx_housekeeping_cleaner_day (cleaner_user_id, task_date),
+    INDEX idx_housekeeping_property_day (property_id, task_date)
+  )`);
   await db.query(`CREATE TABLE IF NOT EXISTS app_settings (
     setting_key VARCHAR(120) PRIMARY KEY, setting_value TEXT NULL, updated_by INT NULL,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -60,6 +81,114 @@ router.use(async (req, res, next) => {
   catch (error) { console.error('[MANAGEMENT TABLE INIT]', error); res.status(500).json({ error: 'Could not initialize operations storage.' }); }
 });
 
+router.get('/staff', allowRoles('admin','manager','management','cleaneradmin','driversadmin','dispatcher'), async (req, res) => {
+  try {
+    const requested = String(req.query.role || '').toLowerCase();
+    const roles = requested === 'cleaner' ? ['cleaner','cleaning'] : requested === 'driver' ? ['driver'] : [];
+    if (!roles.length) return res.status(422).json({ error: 'role must be cleaner or driver.' });
+    const placeholders = roles.map(() => '?').join(',');
+    const rows = await db.query(
+      `SELECT id, first_name, last_name, email, role FROM users WHERE is_active=1 AND role IN (${placeholders}) ORDER BY first_name,last_name,email`,
+      roles
+    );
+    res.json(rows.map((row) => ({
+      id: String(row.id),
+      firstName: row.first_name || '',
+      lastName: row.last_name || '',
+      name: `${row.first_name || ''} ${row.last_name || ''}`.trim() || row.email,
+      email: row.email,
+      role: row.role,
+    })));
+  } catch (error) { console.error('[STAFF LIST]', error); res.status(500).json({ error: 'Could not load staff.' }); }
+});
+
+router.get('/housekeeping-assignments', allowRoles(...housekeepingReadRoles), async (req, res) => {
+  try {
+    const where=[]; const values=[];
+    const role=normalizeRole(req);
+    if (role === 'cleaner' || role === 'cleaning') { where.push('ha.cleaner_user_id = ?'); values.push(req.user.userId); }
+    else if (req.query.cleanerUserId) { where.push('ha.cleaner_user_id = ?'); values.push(req.query.cleanerUserId); }
+    if (req.query.propertyId) { where.push('ha.property_id = ?'); values.push(req.query.propertyId); }
+    if (req.query.from) { where.push('ha.task_date >= ?'); values.push(req.query.from); }
+    if (req.query.to) { where.push('ha.task_date <= ?'); values.push(req.query.to); }
+    const rows = await db.query(
+      `SELECT ha.*, u.first_name cleaner_first_name, u.last_name cleaner_last_name, u.email cleaner_email
+       FROM housekeeping_assignments ha
+       LEFT JOIN users u ON u.id = ha.cleaner_user_id
+       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+       ORDER BY ha.task_date ASC, ha.room_number ASC, ha.id ASC`,
+      values
+    );
+    res.json(rows.map((row) => ({
+      ...row,
+      cleaner_name: `${row.cleaner_first_name || ''} ${row.cleaner_last_name || ''}`.trim() || row.cleaner_email || 'Cleaner',
+    })));
+  } catch (error) { console.error('[HOUSEKEEPING ASSIGNMENTS LIST]', error); res.status(500).json({ error: 'Could not load housekeeping assignments.' }); }
+});
+
+router.post('/housekeeping-assignments', allowRoles(...housekeepingAdminRoles), async (req, res) => {
+  const b=req.body || {};
+  if (!b.propertyId || !b.roomId || !b.taskDate || !b.cleanerUserId) {
+    return res.status(422).json({ error: 'Property, room, task date and cleaner are required.' });
+  }
+  try {
+    const cleanerRows = await db.query(
+      `SELECT id FROM users WHERE id=? AND is_active=1 AND role IN ('cleaner','cleaning') LIMIT 1`,
+      [b.cleanerUserId]
+    );
+    if (!cleanerRows.length) return res.status(422).json({ error: 'Selected user is not an active cleaner.' });
+    await db.query(
+      `INSERT INTO housekeeping_assignments
+       (property_id,room_id,room_number,room_type,task_date,cleaner_user_id,status,notes,created_by)
+       VALUES (?,?,?,?,?,?,?, ?,?)
+       ON DUPLICATE KEY UPDATE cleaner_user_id=VALUES(cleaner_user_id), room_number=VALUES(room_number),
+         room_type=VALUES(room_type), property_id=VALUES(property_id), status='assigned', notes=VALUES(notes),
+         created_by=VALUES(created_by), updated_at=NOW()`,
+      [String(b.propertyId),String(b.roomId),b.roomNumber||null,b.roomType||null,String(b.taskDate).slice(0,10),
+       b.cleanerUserId,b.status||'assigned',b.notes||null,req.user.userId]
+    );
+    const rows=await db.query(
+      `SELECT ha.*, u.first_name cleaner_first_name, u.last_name cleaner_last_name, u.email cleaner_email
+       FROM housekeeping_assignments ha LEFT JOIN users u ON u.id=ha.cleaner_user_id
+       WHERE ha.room_id=? AND ha.task_date=? LIMIT 1`,
+      [String(b.roomId),String(b.taskDate).slice(0,10)]
+    );
+    const row=rows[0];
+    res.status(201).json({...row, cleaner_name:`${row.cleaner_first_name||''} ${row.cleaner_last_name||''}`.trim() || row.cleaner_email || 'Cleaner'});
+  } catch (error) { console.error('[HOUSEKEEPING ASSIGNMENT CREATE]', error); res.status(500).json({ error: 'Could not assign cleaner.' }); }
+});
+
+router.patch('/housekeeping-assignments/:id', allowRoles(...housekeepingReadRoles), async (req, res) => {
+  const role=normalizeRole(req); const b=req.body || {};
+  try {
+    const existing=await db.query('SELECT * FROM housekeeping_assignments WHERE id=? LIMIT 1',[req.params.id]);
+    if (!existing.length) return res.status(404).json({ error:'Assignment not found.' });
+    if ((role==='cleaner'||role==='cleaning') && String(existing[0].cleaner_user_id)!==String(req.user.userId)) {
+      return res.status(403).json({ error:'This room is not assigned to you.' });
+    }
+    const fields=[]; const values=[];
+    const cleanerLimited = role==='cleaner'||role==='cleaning';
+    if (b.status !== undefined) {
+      const status=String(b.status);
+      if (!['assigned','in_progress','completed'].includes(status)) return res.status(422).json({ error:'Invalid assignment status.' });
+      fields.push('status=?'); values.push(status);
+    }
+    if (!cleanerLimited && b.cleanerUserId !== undefined) { fields.push('cleaner_user_id=?'); values.push(b.cleanerUserId); }
+    if (!cleanerLimited && b.taskDate !== undefined) { fields.push('task_date=?'); values.push(String(b.taskDate).slice(0,10)); }
+    if (b.notes !== undefined) { fields.push('notes=?'); values.push(b.notes || null); }
+    if (!fields.length) return res.status(422).json({ error:'No supported assignment fields supplied.' });
+    values.push(req.params.id);
+    await db.query(`UPDATE housekeeping_assignments SET ${fields.join(', ')}, updated_at=NOW() WHERE id=?`,values);
+    const rows=await db.query('SELECT * FROM housekeeping_assignments WHERE id=? LIMIT 1',[req.params.id]);
+    res.json(rows[0]);
+  } catch (error) { console.error('[HOUSEKEEPING ASSIGNMENT UPDATE]', error); res.status(500).json({ error:'Could not update housekeeping assignment.' }); }
+});
+
+router.delete('/housekeeping-assignments/:id', allowRoles(...housekeepingAdminRoles), async (req,res) => {
+  try { await db.query('DELETE FROM housekeeping_assignments WHERE id=?',[req.params.id]); res.json({success:true}); }
+  catch (error) { console.error('[HOUSEKEEPING ASSIGNMENT DELETE]',error); res.status(500).json({error:'Could not delete housekeeping assignment.'}); }
+});
+
 router.get('/transfers', allowRoles(...transferRoles), async (req, res) => {
   try {
     const values = []; const where = [];
@@ -68,8 +197,8 @@ router.get('/transfers', allowRoles(...transferRoles), async (req, res) => {
     if (req.query.date) { where.push('DATE(scheduled_at) = ?'); values.push(req.query.date); }
     if (normalizeRole(req) === 'driver') {
       const driverName = await currentUserName(req);
-      if (!driverName) return res.json([]);
-      where.push('LOWER(driver) = LOWER(?)'); values.push(driverName);
+      where.push('(driver_user_id = ? OR (driver_user_id IS NULL AND LOWER(driver) = LOWER(?)))');
+      values.push(req.user.userId, driverName || '__no_driver_name__');
     }
     const sql = `SELECT * FROM transfers ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY scheduled_at ASC, id ASC`;
     res.json(await db.query(sql, values));
@@ -91,12 +220,12 @@ router.post('/transfers', allowRoles(...editTransferRoles), async (req, res) => 
     }
     const result = await db.query(`INSERT INTO transfers
       (reservation_id, property_id, guest_name, guest_phone, guest_email, transfer_type, pickup_location, destination, scheduled_at,
-       passengers, luggage, flight_info, driver, vehicle, notes, free_shuttle, approximate_arrival_time_airport, cabin_luggages, status, created_by)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`, [
+       passengers, luggage, flight_info, driver, driver_user_id, vehicle, notes, free_shuttle, approximate_arrival_time_airport, cabin_luggages, status, created_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`, [
       String(b.reservationId), b.propertyId || null, b.guestName, b.guestPhone || null, b.guestEmail || null, 'free_airport_shuttle',
       b.pickupLocation || 'Airport', b.destination || 'Property', b.scheduledAt,
       Math.max(1, Number(b.passengers || 1)), Math.max(0, Number(b.luggages ?? b.luggage ?? 0)),
-      b.flightInfo || null, b.driver || null, b.vehicle || null, b.notes || null,
+      b.flightInfo || null, b.driver || null, b.driverUserId || null, b.vehicle || null, b.notes || null,
       b.approximateArrivalTimeAirport || null, Math.max(0, Number(b.cabinLuggages || 0)),
       b.status || (b.driver && b.vehicle ? 'scheduled' : 'unassigned'), req.user.userId
     ]);
@@ -135,11 +264,14 @@ router.patch('/transfers/:id', allowRoles(...transferRoles), async (req, res) =>
       const allowed = ['on_the_way', 'completed', 'cancelled'];
       if (!allowed.includes(b.status)) return res.status(403).json({ error: 'Drivers may only update trip status.' });
       const driverName = await currentUserName(req);
-      const result = await db.query('UPDATE transfers SET status = ? WHERE id = ? AND LOWER(driver) = LOWER(?)', [b.status, req.params.id, driverName]);
+      const result = await db.query(
+        'UPDATE transfers SET status = ? WHERE id = ? AND (driver_user_id = ? OR (driver_user_id IS NULL AND LOWER(driver) = LOWER(?)))',
+        [b.status, req.params.id, req.user.userId, driverName || '__no_driver_name__']
+      );
       if (!result.affectedRows) return res.status(403).json({ error: 'This trip is not assigned to you.' });
     } else if (!editTransferRoles.includes(role)) return res.status(403).json({ error: 'Read-only access.' });
     else {
-      const fields = { reservationId:'reservation_id', propertyId:'property_id', guestName:'guest_name', guestPhone:'guest_phone', guestEmail:'guest_email', transferType:'transfer_type', pickupLocation:'pickup_location', destination:'destination', scheduledAt:'scheduled_at', passengers:'passengers', luggage:'luggage', luggages:'luggage', cabinLuggages:'cabin_luggages', approximateArrivalTimeAirport:'approximate_arrival_time_airport', flightInfo:'flight_info', driver:'driver', vehicle:'vehicle', notes:'notes', status:'status' };
+      const fields = { reservationId:'reservation_id', propertyId:'property_id', guestName:'guest_name', guestPhone:'guest_phone', guestEmail:'guest_email', transferType:'transfer_type', pickupLocation:'pickup_location', destination:'destination', scheduledAt:'scheduled_at', passengers:'passengers', luggage:'luggage', luggages:'luggage', cabinLuggages:'cabin_luggages', approximateArrivalTimeAirport:'approximate_arrival_time_airport', flightInfo:'flight_info', driver:'driver', driverUserId:'driver_user_id', vehicle:'vehicle', notes:'notes', status:'status' };
       const sets=[]; const values=[];
       Object.entries(fields).forEach(([key,column]) => { if (Object.prototype.hasOwnProperty.call(b,key)) { sets.push(`${column} = ?`); values.push(b[key] === '' ? null : b[key]); } });
       if (!sets.length) return res.status(400).json({ error: 'No supported fields supplied.' });
@@ -156,7 +288,7 @@ router.delete('/transfers/:id', allowRoles(...managerRoles), async (req, res) =>
   catch { res.status(500).json({ error: 'Could not delete transfer.' }); }
 });
 
-router.get('/supervisor', allowRoles('admin','management','supervisor'), async (_req, res) => {
+router.get('/supervisor', allowRoles('admin','manager','management','supervisor'), async (_req, res) => {
   try {
     let cleaning=[];
     try { cleaning = await db.query(`SELECT ct.*, rm.internal_name, rm.room_type, r.check_in_date, r.check_out_date, r.special_requests FROM cleaning_tasks ct LEFT JOIN rooms rm ON ct.room_id=rm.id LEFT JOIN reservations r ON ct.reservation_id=r.id ORDER BY FIELD(ct.priority,'high','medium','normal','low'), r.check_in_date ASC`); }
@@ -166,7 +298,7 @@ router.get('/supervisor', allowRoles('admin','management','supervisor'), async (
   } catch (error) { console.error('[SUPERVISOR]', error); res.status(500).json({ error: 'Could not load supervisor operations.' }); }
 });
 
-router.get('/reports', allowRoles('admin','management','supervisor'), async (req, res) => {
+router.get('/reports', allowRoles('admin','manager','management','supervisor'), async (req, res) => {
   try {
     const from=req.query.from || '1970-01-01'; const to=req.query.to || '2999-12-31';
     const transfers=await db.query(`SELECT status, COUNT(*) total FROM transfers WHERE DATE(scheduled_at) BETWEEN ? AND ? GROUP BY status`,[from,to]);
@@ -177,11 +309,11 @@ router.get('/reports', allowRoles('admin','management','supervisor'), async (req
   } catch (error) { console.error('[REPORTS]', error); res.status(500).json({ error: 'Could not build reports.' }); }
 });
 
-router.get('/settings', allowRoles(...managerRoles), async (_req,res) => {
+router.get('/settings', allowRoles('admin'), async (_req,res) => {
   try { const rows=await db.query('SELECT setting_key, setting_value FROM app_settings ORDER BY setting_key'); res.json(Object.fromEntries(rows.map((r)=>[r.setting_key,r.setting_value]))); }
   catch { res.status(500).json({ error:'Could not load settings.' }); }
 });
-router.put('/settings', allowRoles(...managerRoles), async (req,res) => {
+router.put('/settings', allowRoles('admin'), async (req,res) => {
   try {
     const entries=Object.entries(req.body || {}).filter(([key])=>/^[a-z0-9_.-]{2,120}$/i.test(key));
     for (const [key,value] of entries) await db.query(`INSERT INTO app_settings (setting_key,setting_value,updated_by) VALUES (?,?,?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value), updated_by=VALUES(updated_by)`,[key,String(value ?? ''),req.user.userId]);
