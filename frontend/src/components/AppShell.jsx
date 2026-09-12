@@ -135,7 +135,7 @@ const AppShell = () => {
       )}
 
       <div className="xl:pl-[252px]">
-        <header className="sticky top-0 z-30 flex min-h-[64px] items-center border-b border-slate-200/80 bg-white/92 px-3 py-2 backdrop-blur-xl sm:min-h-[72px] sm:px-5 lg:px-6 xl:px-8">
+        <header className="sticky top-0 z-30 flex min-h-[64px] items-center border-b border-slate-200/80 bg-white/95 px-3 py-2 backdrop-blur-xl sm:min-h-[72px] sm:px-5 lg:px-6 xl:px-8">
           <button onClick={() => setMobileOpen(true)} className="mr-2 rounded-xl border border-slate-200 bg-white p-2.5 text-slate-600 shadow-sm xl:hidden" aria-label="Open navigation"><Icon name="menu" /></button>
           <div className="min-w-0">
             <div className="truncate text-[15px] font-semibold tracking-[-0.01em] text-slate-950 sm:text-[16px]">{titles[location.pathname] || 'SEM PMS'}</div>
