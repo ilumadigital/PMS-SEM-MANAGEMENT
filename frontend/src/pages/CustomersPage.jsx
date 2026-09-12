@@ -5,7 +5,7 @@ import { EmptyState, MetricCard, PageHeader, Panel, TableShell, Td, Th, initials
 const inputClass='w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-blue-500';
 
 const CustomersPage=()=>{
-  const { customers,diagnostics,loading,status,error,refresh,connect }=useContext(CloudbedsDataContext);
+  const { customers,diagnostics,loading,status,error,refresh }=useContext(CloudbedsDataContext);
   const [search,setSearch]=useState('');
   const [selectedId,setSelectedId]=useState('');
 
@@ -20,7 +20,7 @@ const CustomersPage=()=>{
   const withContact=customers.filter(guest=>guest.email||guest.phone).length;
 
   return <div className="space-y-6">
-    <PageHeader title="Guests" description="Read-only Cloudbeds guest directory. Guest profile changes remain managed in Cloudbeds." actions={<button onClick={status?.connected?refresh:connect} className="rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-blue-700">{status?.connected?'Refresh Cloudbeds':'Connect Cloudbeds'}</button>}/>
+    <PageHeader title="Guests" description="Read-only Cloudbeds guest directory. Guest profile changes remain managed in Cloudbeds." actions={status?.connected?<button onClick={refresh} className="rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-blue-700">Refresh Cloudbeds</button>:<span className="rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2 text-xs font-bold text-amber-700">Administrator connection required</span>}/>
     {error&&<div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>}
     {(diagnostics?.missingScopes||[]).includes('read:guest')&&<div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">Cloudbeds has not granted <strong>Guest READ</strong>. Re-authorize the app after enabling it.</div>}
 
