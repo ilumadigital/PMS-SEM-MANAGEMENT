@@ -378,17 +378,6 @@ body {
 }
 
 @media (display-mode: standalone) {
-  body {
-    user-select: none;
-    -webkit-user-select: none;
-  }
-
-  input,
-  textarea {
-    user-select: text;
-    -webkit-user-select: text;
-  }
-
   .pms-app {
     padding-top: env(safe-area-inset-top);
   }
