@@ -40,7 +40,7 @@ const CleaningMobile = () => {
 
   const sync = async (item, payload, message) => {
     const { propertyId } = roomContext(item);
-    if (!propertyId) { setNotice('Cannot update Cloudbeds: property ID is missing for this room.'); return; }
+    if (!propertyId) { setNotice('Cannot save room status: property ID is missing for this room.'); return; }
     setSelectedRoomId(String(item.roomId)); setNotice('');
     try {
       await updateHousekeeping(item.roomId, { propertyId, ...payload });
@@ -65,7 +65,7 @@ const CleaningMobile = () => {
   };
 
   return <div className="space-y-5 pb-10">
-    <PageHeader title="Housekeeping" description="Every condition, flag and room comment is written directly to Cloudbeds." actions={<button onClick={refresh} className="rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-blue-700">Refresh Cloudbeds</button>} />
+    <PageHeader title="Housekeeping" description="Dirty, Clean, No Show and Inspected are managed locally in SEM PMS. Checkout rooms and in-house rooms after the first night become Dirty automatically for the day." actions={<button onClick={refresh} className="rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-blue-700">Refresh</button>} />
 
     {missingScope && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">Cloudbeds has not granted <strong>Housekeeping READ</strong>. Re-authorize the app after enabling the scope.</div>}
     {(writeState.error || notice) && <div className={`rounded-xl border px-4 py-3 text-sm font-semibold ${writeState.error?'border-rose-200 bg-rose-50 text-rose-700':'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>{writeState.error || notice}</div>}
@@ -90,7 +90,7 @@ const CleaningMobile = () => {
           <div className="flex items-start justify-between gap-3"><div><div className="text-xl font-black text-slate-950">Room {item.roomNumber || room?.roomNumber || '—'}</div><div className="mt-1 text-xs text-slate-500">{item.roomType || room?.roomType || 'Room'} · {property?.name || 'Cloudbeds property'}</div></div><StatusBadge status={item.roomCondition || item.status || 'not_tracked'} /></div>
           <div className="mt-4 grid grid-cols-2 gap-2 text-xs"><div className="rounded-xl bg-slate-50 p-3"><div className="text-slate-400">Occupancy</div><div className="mt-1 font-bold text-slate-800">{item.roomOccupied?'Occupied':'Vacant'}</div></div><div className="rounded-xl bg-slate-50 p-3"><div className="text-slate-400">Front desk</div><div className="mt-1 font-bold text-slate-800">{item.frontdeskStatus || '—'}</div></div></div>
           {item.comments && <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">{item.comments}</div>}
-          <div className="mt-4 grid grid-cols-3 gap-2">
+          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
             <button disabled={writeState.syncing} onClick={()=>sync(item,{roomCondition:'dirty'},`Room ${item.roomNumber || item.roomId} marked Dirty in SEM PMS.`)} className="min-h-12 rounded-xl border border-amber-200 bg-amber-50 px-2 text-sm font-black text-amber-800 disabled:opacity-40">Dirty</button>
             <button disabled={writeState.syncing} onClick={()=>sync(item,{roomCondition:'clean'},`Room ${item.roomNumber || item.roomId} marked Clean in SEM PMS.`)} className="min-h-12 rounded-xl border border-emerald-200 bg-emerald-50 px-2 text-sm font-black text-emerald-800 disabled:opacity-40">Clean</button>
             <button disabled={writeState.syncing} onClick={()=>sync(item,{roomCondition:'no_show'},`Room ${item.roomNumber || item.roomId} marked No Show in SEM PMS.`)} className="min-h-12 rounded-xl border border-rose-200 bg-rose-50 px-2 text-sm font-black text-rose-800 disabled:opacity-40">No Show</button><button disabled={writeState.syncing} onClick={()=>sync(item,{roomCondition:'inspected'},`Room ${item.roomNumber || item.roomId} marked Inspected in SEM PMS.`)} className="min-h-12 rounded-xl bg-slate-950 px-2 text-sm font-black text-white disabled:opacity-40">Inspected</button>
