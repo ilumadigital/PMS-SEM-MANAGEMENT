@@ -13,6 +13,7 @@ async function ensureTables() {
             source VARCHAR(32) NOT NULL,
             external_reservation_id VARCHAR(128) NOT NULL,
             local_status VARCHAR(32) NULL,
+            online_checkin TINYINT(1) NULL,
             actual_arrival_time VARCHAR(16) NULL,
             actual_departure_time VARCHAR(16) NULL,
             guest_notes TEXT NULL,
@@ -23,6 +24,7 @@ async function ensureTables() {
         )
     `);
     try { await db.query(`ALTER TABLE reservation_operations ADD COLUMN IF NOT EXISTS local_status VARCHAR(32) NULL AFTER external_reservation_id`); } catch (_) {}
+    try { await db.query(`ALTER TABLE reservation_operations ADD COLUMN IF NOT EXISTS online_checkin TINYINT(1) NULL AFTER local_status`); } catch (_) {}
     try { await db.query(`ALTER TABLE reservation_operations ADD COLUMN IF NOT EXISTS updated_by VARCHAR(64) NULL AFTER special_requests_json`); } catch (_) {}
 
     await db.query(`
@@ -32,6 +34,8 @@ async function ensureTables() {
             property_id VARCHAR(128) NULL,
             room_number VARCHAR(128) NULL,
             housekeeping_status VARCHAR(32) NOT NULL DEFAULT 'dirty',
+            refill TINYINT(1) NOT NULL DEFAULT 0,
+            extra_linens VARCHAR(255) NULL,
             comments TEXT NULL,
             status_date DATE NOT NULL,
             updated_by VARCHAR(64) NULL,
@@ -41,6 +45,9 @@ async function ensureTables() {
             INDEX idx_room_operations_property (property_id)
         )
     `);
+
+    try { await db.query(`ALTER TABLE room_operations ADD COLUMN IF NOT EXISTS refill TINYINT(1) NOT NULL DEFAULT 0 AFTER housekeeping_status`); } catch (_) {}
+    try { await db.query(`ALTER TABLE room_operations ADD COLUMN IF NOT EXISTS extra_linens VARCHAR(255) NULL AFTER refill`); } catch (_) {}
 
     await db.query(`
         CREATE TABLE IF NOT EXISTS guest_housekeeping_schedule (
@@ -193,6 +200,7 @@ async function listReservationOperations() {
     return rows.map((row) => ({
         reservationId: String(row.external_reservation_id),
         status: row.local_status,
+        onlineCheckin: row.online_checkin == null ? null : Boolean(row.online_checkin),
         actualArrivalTime: row.actual_arrival_time,
         actualDepartureTime: row.actual_departure_time,
         guestNotes: row.guest_notes,
@@ -210,20 +218,23 @@ async function updateReservationOperation(reservationId, payload = {}, actor = {
     }
     const arrival = payload.actualArrivalTime ?? payload.actual_arrival_time ?? payload.arrivalTime;
     const departure = payload.actualDepartureTime ?? payload.actual_departure_time ?? payload.departureTime;
-    const notes = payload.guestNotes ?? payload.guest_notes;
+    const notes = payload.guestNotes ?? payload.guest_notes ?? payload.notes;
     const special = payload.specialRequests ?? payload.special_requests;
+    const onlineCheckin = payload.onlineCheckin ?? payload.online_checkin;
     await db.query(
         `INSERT INTO reservation_operations
-          (source, external_reservation_id, local_status, actual_arrival_time, actual_departure_time, guest_notes, special_requests_json, updated_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          (source, external_reservation_id, local_status, online_checkin, actual_arrival_time, actual_departure_time, guest_notes, special_requests_json, updated_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
           local_status=COALESCE(VALUES(local_status),local_status),
+          online_checkin=COALESCE(VALUES(online_checkin),online_checkin),
           actual_arrival_time=COALESCE(VALUES(actual_arrival_time),actual_arrival_time),
           actual_departure_time=COALESCE(VALUES(actual_departure_time),actual_departure_time),
           guest_notes=COALESCE(VALUES(guest_notes),guest_notes),
           special_requests_json=COALESCE(VALUES(special_requests_json),special_requests_json),
           updated_by=VALUES(updated_by), updated_at=NOW()`,
-        [SOURCE, String(reservationId), status, arrival ?? null, departure ?? null, notes ?? null,
+        [SOURCE, String(reservationId), status, onlineCheckin === undefined ? null : (onlineCheckin ? 1 : 0),
+         arrival ?? null, departure ?? null, notes ?? null,
          special === undefined ? null : JSON.stringify(special), actor.userId ? String(actor.userId) : null]
     );
     const all = await listReservationOperations();
@@ -236,26 +247,38 @@ async function listHousekeepingStatus() {
     return rows.map((row) => ({
         roomId: String(row.room_id), propertyId: row.property_id, roomNumber: row.room_number,
         roomCondition: row.housekeeping_status, status: row.housekeeping_status,
+        refill: Boolean(row.refill), extraLinens: row.extra_linens || '',
         comments: row.comments || '', date: row.status_date, updatedAt: row.updated_at,
     }));
 }
 
 async function updateHousekeepingStatus(roomId, payload = {}, actor = {}) {
     await ensureTables();
-    const status = String(payload.roomCondition || payload.status || '').toLowerCase();
+    const existingRows = await db.query(
+        `SELECT * FROM room_operations WHERE source = ? AND room_id = ? LIMIT 1`,
+        [SOURCE, String(roomId)]
+    );
+    const existing = existingRows[0] || null;
+    const requestedStatus = payload.roomCondition ?? payload.status;
+    const status = String(requestedStatus || existing?.housekeeping_status || 'dirty').toLowerCase();
     if (!HOUSEKEEPING_STATUSES.includes(status)) {
         const error = new Error('Housekeeping status must be Dirty, Clean, No Show or Inspected.'); error.status = 422; throw error;
     }
     const statusDate = String(payload.statusDate || new Date().toISOString().slice(0, 10)).slice(0, 10);
+    const refill = payload.refill === undefined ? Boolean(existing?.refill) : Boolean(payload.refill);
+    const extraLinens = payload.extraLinens === undefined ? (existing?.extra_linens || '') : String(payload.extraLinens || '');
+    const comments = payload.comments ?? payload.roomComments ?? existing?.comments ?? null;
+
     await db.query(
         `INSERT INTO room_operations
-          (source, room_id, property_id, room_number, housekeeping_status, comments, status_date, updated_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          (source, room_id, property_id, room_number, housekeeping_status, refill, extra_linens, comments, status_date, updated_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
           property_id=VALUES(property_id), room_number=VALUES(room_number), housekeeping_status=VALUES(housekeeping_status),
-          comments=VALUES(comments), status_date=VALUES(status_date), updated_by=VALUES(updated_by), updated_at=NOW()`,
-        [SOURCE, String(roomId), payload.propertyId || null, payload.roomNumber || null, status,
-         payload.comments ?? payload.roomComments ?? null, statusDate, actor.userId ? String(actor.userId) : null]
+          refill=VALUES(refill), extra_linens=VALUES(extra_linens), comments=VALUES(comments),
+          status_date=VALUES(status_date), updated_by=VALUES(updated_by), updated_at=NOW()`,
+        [SOURCE, String(roomId), payload.propertyId || existing?.property_id || null, payload.roomNumber || existing?.room_number || null,
+         status, refill ? 1 : 0, extraLinens, comments, statusDate, actor.userId ? String(actor.userId) : null]
     );
     const all = await listHousekeepingStatus();
     return all.find((item) => item.roomId === String(roomId)) || null;
