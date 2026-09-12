@@ -1,10 +1,13 @@
 const operationsService = require('../services/operations.service');
+const realtimeService = require('../services/realtime.service');
 
 function sendError(res, error) {
     console.error('[OPERATIONS API]', error.message);
     return res.status(error.status || 500).json({ success: false, message: error.message || 'Operations request failed.' });
 }
 const actor = (req) => ({ userId: req.user?.userId, role: req.user?.role });
+
+const getRealtimeRevision = async (_req,res) => { try { res.status(200).json({success:true,data:await realtimeService.getRevision()}); } catch(error){ return sendError(res,error); } };
 
 const getTransfers = async (_req,res) => { try { res.status(200).json({success:true,data:await operationsService.listTransfers()}); } catch(error){ return sendError(res,error); } };
 const updateTransfer = async (req,res) => { try { res.status(200).json({success:true,data:await operationsService.updateTransfer(req.params.id,req.body||{})}); } catch(error){ return sendError(res,error); } };
@@ -26,6 +29,7 @@ const updateHousekeepingStatus = async (req,res) => {
 };
 
 module.exports = {
+    getRealtimeRevision,
     getTransfers, updateTransfer, getHousekeepingSchedule,
     getReservationOperations, updateReservationOperation,
     getHousekeepingStatus, updateHousekeepingStatus,
