@@ -41,8 +41,8 @@ const groups = [
     { to: '/my-cleaning', label: 'My Cleaning Schedule', icon: 'calendar', roles: ['cleaner', 'cleaning'] },
   ]},
   { label: 'Mobility', items: [
-    { to: '/shuttle', label: 'Transfers', icon: 'shuttle', roles: [...M, 'reception', 'supervisor', 'driversadmin', 'dispatcher'] },
-    { to: '/my-shuttles', label: 'My Shuttle Schedule', icon: 'calendar', roles: ['driver'] },
+    { to: '/shuttle', label: 'Free Shuttle', icon: 'shuttle', roles: [...M, 'reception', 'supervisor', 'driversadmin', 'dispatcher'] },
+    { to: '/my-shuttles', label: 'My Free Shuttles', icon: 'calendar', roles: ['driver'] },
   ]},
   { label: 'Management', items: [
     { to: '/supervisor', label: 'Supervisor', icon: 'reception', roles: [...M, 'supervisor'] },
