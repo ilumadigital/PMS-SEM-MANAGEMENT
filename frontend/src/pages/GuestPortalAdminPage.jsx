@@ -53,7 +53,7 @@ const GuestPortalAdminPage = () => {
   };
 
   const role = String(user?.role || '').toLowerCase();
-  const canEditCatalog = ['admin', 'management'].includes(role);
+  const canEditCatalog = ['admin', 'manager', 'management'].includes(role);
 
   return (
     <div className="space-y-6">
