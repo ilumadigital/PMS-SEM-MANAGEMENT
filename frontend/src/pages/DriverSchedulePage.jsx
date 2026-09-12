@@ -42,7 +42,7 @@ const DriverSchedulePage=()=>{
                   <a href={mapsSearch(row.pickup_location || 'Airport')} target="_blank" rel="noreferrer" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-center text-xs font-black text-slate-700">Pickup in Google Maps</a>
                   <a href={mapsRoute(row.pickup_location || 'Airport',row.destination)} target="_blank" rel="noreferrer" className="rounded-lg bg-blue-600 px-3 py-2 text-center text-xs font-black text-white">Route to property</a>
                 </div>
-                <select value={row.status} disabled={saving===String(row.id)} onChange={e=>update(row,e.target.value)} className="mt-3 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-xs font-bold"><option value="scheduled">Scheduled</option><option value="on_the_way">On the way</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select>
+                <select value={row.status} disabled={saving===String(row.id)} onChange={e=>update(row,e.target.value)} className="mt-3 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-xs font-bold"><option value="unassigned" disabled>Unassigned</option><option value="scheduled">Scheduled</option><option value="on_the_way">On the way</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select>
               </article>)}
               {!items.length&&<div className="p-4 text-center text-xs text-slate-400">No shuttles</div>}
             </div>
