@@ -7,6 +7,11 @@ const PwaManager = () => {
   const [standalone, setStandalone] = useState(
     () => window.matchMedia?.('(display-mode: standalone)').matches || window.navigator.standalone === true
   );
+  const [iosHintDismissed, setIosHintDismissed] = useState(
+    () => localStorage.getItem('sem-pwa-ios-hint-dismissed') === '1'
+  );
+  const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
   useEffect(() => {
     const onBeforeInstall = (event) => {
@@ -56,7 +61,8 @@ const PwaManager = () => {
     }
   };
 
-  if (online && !updateReady && (!installPrompt || standalone)) return null;
+  const showIosInstall = isIos && !standalone && !iosHintDismissed;
+  if (online && !updateReady && (!installPrompt || standalone) && !showIosInstall) return null;
 
   return (
     <div className="pointer-events-none fixed inset-x-3 bottom-[calc(78px+env(safe-area-inset-bottom))] z-[120] flex flex-col items-center gap-2 sm:inset-x-auto sm:right-5 sm:bottom-5 sm:items-end xl:bottom-5">
@@ -74,6 +80,25 @@ const PwaManager = () => {
             <div className="mt-1 text-xs leading-5 text-slate-500">Reload once to use the newest app version.</div>
           </div>
           <button onClick={update} className="min-h-11 rounded-xl bg-blue-600 px-4 text-sm font-black text-white">Update now</button>
+        </div>
+      )}
+
+      {showIosInstall && (
+        <div className="pointer-events-auto flex max-w-md flex-col gap-3 rounded-2xl border border-slate-200 bg-white/95 p-4 shadow-2xl backdrop-blur">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="text-sm font-black text-slate-950">Install SEM PMS on iPhone / iPad</div>
+              <div className="mt-1 text-xs leading-5 text-slate-500">Tap Share in Safari, then choose <strong>Add to Home Screen</strong> for the full-screen PWA experience.</div>
+            </div>
+            <button
+              onClick={() => {
+                localStorage.setItem('sem-pwa-ios-hint-dismissed', '1');
+                setIosHintDismissed(true);
+              }}
+              className="pms-compact-control flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-sm font-black text-slate-500"
+              aria-label="Dismiss install tip"
+            >×</button>
+          </div>
         </div>
       )}
 
