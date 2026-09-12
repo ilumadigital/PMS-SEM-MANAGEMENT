@@ -491,8 +491,9 @@ const TransfersTab = ({ token, reservation, transfers, reload, setNotice }) => {
         <div className="mt-5 space-y-3">
           {transfers.map((transfer) => (
             <div key={transfer.id} className="rounded-[20px] border border-white/10 bg-white/[0.045] p-4">
-              <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="truncate text-[13px] font-bold text-white">{transfer.pickupLocation}</div><div className="mt-1 flex items-center gap-2 truncate text-[11px] text-white/45"><Icon name="arrow" className="h-3 w-3 shrink-0" /> {transfer.destination}</div></div><Status status={transfer.status} dark /></div>
-              <div className="mt-3 text-[12px] font-semibold text-[#d2b88f]">{formatDateTime(transfer.scheduledAt)}</div>
+              <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="text-[9px] font-bold uppercase tracking-[0.14em] text-[#c8ad83]">{transfer.freeShuttle ? 'Free airport shuttle' : 'Private transfer'}</div><div className="mt-1 truncate text-[13px] font-bold text-white">{transfer.pickupLocation}</div><div className="mt-1 flex items-center gap-2 truncate text-[11px] text-white/45"><Icon name="arrow" className="h-3 w-3 shrink-0" /> {transfer.destination}</div></div><Status status={transfer.status} dark /></div>
+              <div className="mt-3 text-[12px] font-semibold text-[#d2b88f]">{formatDateTime(transfer.scheduledAt)}{transfer.approximateArrivalTimeAirport ? ` · Airport approx. ${transfer.approximateArrivalTimeAirport}` : ''}</div>
+              {transfer.freeShuttle && <div className="mt-2 text-[11px] text-white/45">{transfer.passengers || 1} guest(s) · {transfer.cabinLuggages || 0} cabin · {transfer.luggage || 0} luggage{transfer.flightInfo ? ` · ${transfer.flightInfo}` : ''}</div>}
               <div className="mt-1 text-[11px] text-white/45">{transfer.driver ? `${transfer.driver}${transfer.vehicle ? ` · ${transfer.vehicle}` : ''}` : 'Driver assignment pending'}</div>
             </div>
           ))}
