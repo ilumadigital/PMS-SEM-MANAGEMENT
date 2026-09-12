@@ -68,6 +68,7 @@ const AppShell = () => {
   const visibleGroups = groups
     .map((group) => ({ ...group, items: group.items.filter((item) => item.roles.includes('*') || item.roles.includes(userRole)) }))
     .filter((group) => group.items.length);
+  const mobileItems = visibleGroups.flatMap((group) => group.items).slice(0, 4);
 
   const roleLimited = ['cleaner','cleaning','driver'].includes(userRole);
   const ready = cloudbeds.status?.connected && cloudbeds.status?.dataStatus === 'ready';
@@ -125,24 +126,24 @@ const AppShell = () => {
     <div className="pms-app min-h-screen bg-[#f5f7fb] text-slate-900">
       <PmsAutoRefreshBridge onRevision={bumpPageRevision} />
 
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-[252px] lg:block">{sidebar}</aside>
+      <aside className="fixed inset-y-0 left-0 z-40 hidden w-[252px] xl:block">{sidebar}</aside>
       {mobileOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden">
+        <div className="fixed inset-0 z-50 xl:hidden">
           <button className="absolute inset-0 bg-slate-950/55 backdrop-blur-[2px]" onClick={() => setMobileOpen(false)} aria-label="Close menu" />
-          <aside className="relative h-full w-72 shadow-2xl">{sidebar}</aside>
+          <aside className="pms-mobile-drawer relative h-full w-[min(84vw,320px)] shadow-2xl">{sidebar}</aside>
         </div>
       )}
 
-      <div className="lg:pl-[252px]">
-        <header className="sticky top-0 z-30 flex h-[72px] items-center border-b border-slate-200/80 bg-white/90 px-4 backdrop-blur-xl sm:px-6 lg:px-8">
-          <button onClick={() => setMobileOpen(true)} className="mr-3 rounded-xl border border-slate-200 bg-white p-2.5 text-slate-600 shadow-sm lg:hidden"><Icon name="menu" /></button>
+      <div className="xl:pl-[252px]">
+        <header className="sticky top-0 z-30 flex min-h-[64px] items-center border-b border-slate-200/80 bg-white/92 px-3 py-2 backdrop-blur-xl sm:min-h-[72px] sm:px-5 lg:px-6 xl:px-8">
+          <button onClick={() => setMobileOpen(true)} className="mr-2 rounded-xl border border-slate-200 bg-white p-2.5 text-slate-600 shadow-sm xl:hidden" aria-label="Open navigation"><Icon name="menu" /></button>
           <div className="min-w-0">
-            <div className="truncate text-[16px] font-semibold tracking-[-0.01em] text-slate-950">{titles[location.pathname] || 'SEM PMS'}</div>
-            <div className="mt-0.5 hidden text-xs font-normal text-slate-500 sm:block">{roleLimited ? 'Assigned schedule access only' : ready ? 'Live data · automatic refresh enabled' : authorized ? 'Cloudbeds authorized · validation in progress' : 'Cloudbeds connection required'}</div>
+            <div className="truncate text-[15px] font-semibold tracking-[-0.01em] text-slate-950 sm:text-[16px]">{titles[location.pathname] || 'SEM PMS'}</div>
+            <div className="mt-0.5 hidden text-xs font-normal text-slate-500 md:block">{roleLimited ? 'Assigned schedule access only' : ready ? 'Live data · automatic refresh enabled' : authorized ? 'Cloudbeds authorized · validation in progress' : 'Cloudbeds connection required'}</div>
           </div>
 
           <div className="ml-auto flex items-center gap-2 sm:gap-3">
-            <div className={`hidden items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium sm:flex ${roleLimited ? 'border-slate-200 bg-slate-50 text-slate-600' : cloudbeds.error ? 'border-rose-200 bg-rose-50 text-rose-700' : ready ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : authorized ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-slate-200 bg-slate-50 text-slate-600'}`}>
+            <div className={`hidden items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium md:flex ${roleLimited ? 'border-slate-200 bg-slate-50 text-slate-600' : cloudbeds.error ? 'border-rose-200 bg-rose-50 text-rose-700' : ready ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : authorized ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-slate-200 bg-slate-50 text-slate-600'}`}>
               <span className={`h-2 w-2 rounded-full ${roleLimited ? 'bg-blue-500' : cloudbeds.error ? 'bg-rose-500' : ready ? 'bg-emerald-500' : authorized ? 'bg-amber-500' : 'bg-slate-400'}`} />
               {roleLimited ? 'Schedule only' : cloudbeds.error ? 'Sync issue' : ready ? 'Cloudbeds synced' : authorized ? 'Connected' : 'Not connected'}
             </div>
@@ -153,11 +154,30 @@ const AppShell = () => {
           </div>
         </header>
 
-        <main className="min-h-[calc(100vh-72px)] bg-[radial-gradient(circle_at_100%_0%,rgba(37,99,235,0.055),transparent_30%),linear-gradient(180deg,#f8faff_0%,#f5f7fb_45%,#f5f7fb_100%)]">
-          <div className="mx-auto max-w-[1640px] px-4 py-6 sm:px-6 lg:px-8 lg:py-7">
+        <main className="min-h-[calc(100dvh-64px)] bg-[radial-gradient(circle_at_100%_0%,rgba(37,99,235,0.055),transparent_30%),linear-gradient(180deg,#f8faff_0%,#f5f7fb_45%,#f5f7fb_100%)] sm:min-h-[calc(100dvh-72px)]">
+          <div className="mx-auto max-w-[1640px] px-3 py-4 pb-28 sm:px-5 sm:py-6 sm:pb-28 lg:px-6 xl:px-8 xl:py-7 xl:pb-7">
             <Outlet key={`${location.pathname}:${pageRevision}`} />
           </div>
         </main>
+
+        <nav className="pms-mobile-bottom-nav fixed inset-x-0 bottom-0 z-40 border-t border-slate-200/90 bg-white/95 px-2 pt-2 shadow-[0_-12px_30px_rgba(15,23,42,0.08)] backdrop-blur-xl xl:hidden" aria-label="Quick navigation">
+          <div className="mx-auto grid max-w-2xl grid-cols-5 gap-1">
+            {mobileItems.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={({ isActive }) => `flex min-h-[54px] flex-col items-center justify-center gap-1 rounded-xl px-1 text-[10px] font-bold transition ${isActive ? 'bg-blue-50 text-blue-700' : 'text-slate-500'}`}
+              >
+                <Icon name={item.icon} className="h-[19px] w-[19px]" />
+                <span className="max-w-full truncate">{item.label.replace(' Schedule','')}</span>
+              </NavLink>
+            ))}
+            <button onClick={() => setMobileOpen(true)} className="flex min-h-[54px] flex-col items-center justify-center gap-1 rounded-xl px-1 text-[10px] font-bold text-slate-500">
+              <Icon name="menu" className="h-[19px] w-[19px]" />
+              <span>More</span>
+            </button>
+          </div>
+        </nav>
       </div>
     </div>
   );
