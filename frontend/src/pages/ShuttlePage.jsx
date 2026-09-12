@@ -70,7 +70,7 @@ const ShuttlePage = () => {
         notes:form.notes,
       });
       const notification=response.data?.customerNotification;
-      setNotice(notification?.sent ? 'Free shuttle saved and confirmation emailed to the guest.' : 'Free shuttle saved. Guest Portal updated; email confirmation was not sent.');
+      setNotice(notification?.sent ? 'Free shuttle saved and confirmation emailed to the guest.' : 'Free shuttle saved. Guest notification email was not sent; check the guest email / portal setup.');
       setForm(initialForm); setShowForm(false); await load();
     } catch(err){ setError(err.response?.data?.error || err.message); }
     finally{ setSaving(false); }
