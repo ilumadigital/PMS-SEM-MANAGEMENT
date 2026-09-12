@@ -10,14 +10,21 @@ const FRONTEND_URL = (process.env.PMS_FRONTEND_URL || 'https://pms.sem-managemen
 const AUTH_STATE_TTL_MINUTES = 10;
 
 const FULL_AUTH_SCOPES = [
-    'read:customFields', 'write:customFields', 'read:dashboard',
-    'read:guest', 'write:guest', 'read:hotel',
-    'read:housekeeping', 'write:housekeeping',
-    'read:reservation', 'write:reservation',
-    'read:resourceReservations', 'write:resourceReservations',
-    'read:room', 'write:room', 'read:roomblock', 'write:roomblock',
-    'read:addon', 'read:item', 'write:item', 'read:currency',
-    'read:payment', 'read:rate', 'read:taxesAndFees',
+    'read:customFields',
+    'read:dashboard',
+    'read:guest',
+    'read:hotel',
+    'read:housekeeping',
+    'read:reservation',
+    'read:resourceReservations',
+    'read:room',
+    'read:roomblock',
+    'read:addon',
+    'read:item',
+    'read:currency',
+    'read:payment',
+    'read:rate',
+    'read:taxesAndFees',
 ];
 
 let tablesReady = false;
