@@ -1,8 +1,8 @@
 import React, { useContext, useMemo, useState } from 'react';
+import { AuthContext } from '../context/AuthContext';
 import { CloudbedsDataContext } from '../context/CloudbedsDataContext';
 import {
   EmptyState,
-  MetricCard,
   PageHeader,
   Panel,
   StatusBadge,
@@ -15,302 +15,442 @@ import {
   todayKey,
 } from '../components/PmsUi';
 
+const inputClass = 'w-full min-w-[104px] rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100';
+const compactSelect = 'min-w-[92px] rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm text-slate-900 outline-none focus:border-blue-500';
+
+const reservationUsesRoom = (reservation, roomId) => {
+  const ids = reservation.roomIds?.length ? reservation.roomIds.map(String) : [String(reservation.roomId || '')];
+  return ids.includes(String(roomId));
+};
+
+const guestCountForRoom = (reservation, roomId) => {
+  if (!reservation) return '—';
+  const roomCount = reservation.roomGuestCounts?.[String(roomId)];
+  if (Number(roomCount) > 0) return Number(roomCount);
+  if (Number(reservation.guestCount) > 0) return Number(reservation.guestCount);
+  return 1;
+};
+
 const DashboardPage = () => {
+  const { user } = useContext(AuthContext);
   const {
     reservations,
     properties,
     rooms,
-    customers,
     housekeeping,
-    dashboard,
-    diagnostics,
     status,
     loading,
     error,
-    refresh,
     connect,
+    updateReservation,
+    updateHousekeeping,
   } = useContext(CloudbedsDataContext);
 
+  const role = String(user?.role || '').toLowerCase();
+  const canEditFrontDesk = ['admin', 'management', 'reception', 'supervisor'].includes(role);
+  const canEditHousekeeping = ['admin', 'management', 'reception', 'supervisor', 'cleaner', 'cleaning'].includes(role);
+
   const [propertyFilter, setPropertyFilter] = useState('all');
+  const [frontDrafts, setFrontDrafts] = useState({});
+  const [housekeepingDrafts, setHousekeepingDrafts] = useState({});
+  const [savingKey, setSavingKey] = useState('');
+  const [notice, setNotice] = useState('');
+  const [localError, setLocalError] = useState('');
+
+  const today = todayKey();
+  const tomorrow = addDaysKey(1);
+
+  const propertyName = (propertyId) =>
+    properties.find((property) => String(property.id) === String(propertyId))?.name || 'Cloudbeds Property';
 
   const scopedReservations = useMemo(
-    () =>
-      propertyFilter === 'all'
-        ? reservations
-        : reservations.filter((reservation) => reservation.propertyId === propertyFilter),
+    () => propertyFilter === 'all'
+      ? reservations
+      : reservations.filter((reservation) => String(reservation.propertyId) === String(propertyFilter)),
     [reservations, propertyFilter]
   );
 
-  const today = todayKey();
-  const weekEnd = addDaysKey(7);
-
-  const todayArrivals = scopedReservations
-    .filter((reservation) => reservation.arrivalDate === today && reservation.status !== 'cancelled')
-    .sort((a, b) => String(a.arrivalTime || '99:99').localeCompare(String(b.arrivalTime || '99:99')));
-
-  const todayDepartures = scopedReservations
-    .filter((reservation) => reservation.departureDate === today && reservation.status !== 'cancelled')
-    .sort((a, b) => String(a.departureTime || '99:99').localeCompare(String(b.departureTime || '99:99')));
-
-  const inHouse = scopedReservations.filter((reservation) => {
-    if (reservation.status === 'in_house') return true;
-    return (
-      reservation.arrivalDate &&
-      reservation.departureDate &&
-      reservation.arrivalDate <= today &&
-      reservation.departureDate > today &&
-      reservation.status !== 'cancelled'
-    );
-  });
-
-  const upcoming = scopedReservations
-    .filter(
-      (reservation) =>
-        reservation.arrivalDate > today &&
-        reservation.arrivalDate <= weekEnd &&
-        reservation.status !== 'cancelled'
-    )
-    .sort((a, b) => String(a.arrivalDate).localeCompare(String(b.arrivalDate)))
-    .slice(0, 8);
-
-  const missingInfo = scopedReservations.filter(
-    (reservation) => (reservation.missingFields || []).length > 0 && reservation.status !== 'cancelled'
+  const frontDeskRows = useMemo(
+    () => scopedReservations
+      .filter((reservation) =>
+        [today, tomorrow].includes(String(reservation.arrivalDate || '')) &&
+        !['cancelled', 'no_show'].includes(String(reservation.status || '').toLowerCase())
+      )
+      .sort((a, b) => {
+        const byDate = String(a.arrivalDate || '').localeCompare(String(b.arrivalDate || ''));
+        if (byDate) return byDate;
+        return String(a.arrivalTime || '99:99').localeCompare(String(b.arrivalTime || '99:99'));
+      }),
+    [scopedReservations, today, tomorrow]
   );
 
-  const scopedRooms =
-    propertyFilter === 'all' ? rooms : rooms.filter((room) => room.propertyId === propertyFilter);
+  const scopedRooms = useMemo(
+    () => (propertyFilter === 'all' ? rooms : rooms.filter((room) => String(room.propertyId) === String(propertyFilter)))
+      .slice()
+      .sort((a, b) => {
+        const pa = propertyName(a.propertyId);
+        const pb = propertyName(b.propertyId);
+        const prop = pa.localeCompare(pb);
+        if (prop) return prop;
+        return String(a.roomNumber || a.id).localeCompare(String(b.roomNumber || b.id), undefined, { numeric: true });
+      }),
+    [rooms, properties, propertyFilter] // eslint-disable-line react-hooks/exhaustive-deps
+  );
 
-  const occupiedRooms = scopedRooms.filter((room) =>
-    ['occupied', 'checkout_today'].includes(room.occupancyStatus)
-  ).length;
+  const housekeepingRows = useMemo(() => scopedRooms.map((room) => {
+    const roomReservations = reservations
+      .filter((reservation) => reservationUsesRoom(reservation, room.id) && reservation.status !== 'cancelled')
+      .sort((a, b) => String(a.arrivalDate || '').localeCompare(String(b.arrivalDate || '')));
 
-  const derivedOccupancy = scopedRooms.length
-    ? Math.round((occupiedRooms / scopedRooms.length) * 100)
-    : 0;
+    const checkout = roomReservations.find((reservation) => reservation.departureDate === today);
+    const checkinToday = roomReservations.find((reservation) => reservation.arrivalDate === today);
+    const checkinTomorrow = roomReservations.find((reservation) => reservation.arrivalDate === tomorrow);
+    const inHouse = roomReservations.find((reservation) =>
+      reservation.arrivalDate && reservation.departureDate &&
+      reservation.arrivalDate <= today && reservation.departureDate > today &&
+      !['checked_out', 'cancelled', 'no_show'].includes(String(reservation.status || ''))
+    );
+    const incoming = checkinToday || checkinTomorrow || inHouse || null;
+    const guestReservation = incoming || checkout || null;
+    const hk = housekeeping.find((item) => String(item.roomId) === String(room.id)) || {};
 
-  const useCloudbedsDashboard = propertyFilter === 'all' && dashboard;
-  const displayArrivals = useCloudbedsDashboard ? Number(dashboard.arrivals || 0) : todayArrivals.length;
-  const displayDepartures = useCloudbedsDashboard ? Number(dashboard.departures || 0) : todayDepartures.length;
-  const displayInHouse = useCloudbedsDashboard ? Number(dashboard.inHouse || 0) : inHouse.length;
-  const occupancy = useCloudbedsDashboard
-    ? Number(dashboard.percentageOccupied || derivedOccupancy || 0)
-    : derivedOccupancy;
+    return {
+      room,
+      propertyName: propertyName(room.propertyId),
+      housekeeping: hk,
+      checkOutTime: checkout?.departureTime || (inHouse?.departureDate === today ? inHouse?.departureTime : '') || '',
+      checkInTime: incoming?.arrivalTime || '',
+      guestCount: guestCountForRoom(guestReservation, room.id),
+      movement: checkinToday ? 'Arrival today' : checkinTomorrow ? 'Arrival tomorrow' : checkout ? 'Checkout today' : inHouse ? 'In house' : 'No movement',
+    };
+  }), [scopedRooms, reservations, housekeeping, today, tomorrow, properties]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const accessCounts = diagnostics?.counts || {
-    reservations: reservations.length,
-    guests: customers.length,
-    rooms: rooms.length,
-    housekeeping: housekeeping.length,
+  const draftValue = (collection, id, key, fallback = '') => {
+    const row = collection[String(id)] || {};
+    return Object.prototype.hasOwnProperty.call(row, key) ? row[key] : fallback;
   };
-  const missingScopes = diagnostics?.missingScopes || [];
+
+  const setFrontDraft = (id, key, value) => {
+    setFrontDrafts((current) => ({
+      ...current,
+      [String(id)]: { ...(current[String(id)] || {}), [key]: value },
+    }));
+  };
+
+  const clearFrontDraft = (id, key) => {
+    setFrontDrafts((current) => {
+      const next = { ...current };
+      const row = { ...(next[String(id)] || {}) };
+      delete row[key];
+      if (Object.keys(row).length) next[String(id)] = row;
+      else delete next[String(id)];
+      return next;
+    });
+  };
+
+  const saveFrontDesk = async (reservation, key, value) => {
+    const actionKey = `reservation:${reservation.id}:${key}`;
+    setSavingKey(actionKey); setLocalError(''); setNotice('');
+    const payload = key === 'arrivalTime'
+      ? { arrivalTime: value }
+      : key === 'departureTime'
+        ? { departureTime: value }
+        : key === 'onlineCheckin'
+          ? { onlineCheckin: value }
+          : { notes: value };
+    try {
+      await updateReservation(reservation.id, payload);
+      clearFrontDraft(reservation.id, key);
+      setNotice(`${reservation.guestName} updated.`);
+    } catch (requestError) {
+      setLocalError(requestError.response?.data?.message || requestError.message || 'Front Desk update failed.');
+    } finally {
+      setSavingKey('');
+    }
+  };
+
+  const setHousekeepingDraft = (roomId, key, value) => {
+    setHousekeepingDrafts((current) => ({
+      ...current,
+      [String(roomId)]: { ...(current[String(roomId)] || {}), [key]: value },
+    }));
+  };
+
+  const clearHousekeepingDraft = (roomId, key) => {
+    setHousekeepingDrafts((current) => {
+      const next = { ...current };
+      const row = { ...(next[String(roomId)] || {}) };
+      delete row[key];
+      if (Object.keys(row).length) next[String(roomId)] = row;
+      else delete next[String(roomId)];
+      return next;
+    });
+  };
+
+  const saveHousekeeping = async (room, key, value) => {
+    const actionKey = `room:${room.id}:${key}`;
+    setSavingKey(actionKey); setLocalError(''); setNotice('');
+    const payload = {
+      propertyId: room.propertyId,
+      roomNumber: room.roomNumber,
+      [key]: value,
+    };
+    try {
+      await updateHousekeeping(room.id, payload);
+      clearHousekeepingDraft(room.id, key === 'roomCondition' ? 'roomCondition' : key);
+      setNotice(`Room ${room.roomNumber || room.id} updated.`);
+    } catch (requestError) {
+      setLocalError(requestError.response?.data?.message || requestError.message || 'Housekeeping update failed.');
+    } finally {
+      setSavingKey('');
+    }
+  };
+
+  const todayCount = frontDeskRows.filter((reservation) => reservation.arrivalDate === today).length;
+  const tomorrowCount = frontDeskRows.filter((reservation) => reservation.arrivalDate === tomorrow).length;
+  const dirtyCount = housekeepingRows.filter((row) => String(row.housekeeping.roomCondition || 'dirty') === 'dirty').length;
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Dashboard"
-        description="Live operational overview from the connected Cloudbeds sandbox."
+        description="Front Desk and Housekeeping operational view. Cloudbeds supplies reservations, properties and rooms; all editable operational fields are stored locally in SEM PMS."
         actions={
           <>
             <select
               value={propertyFilter}
               onChange={(event) => setPropertyFilter(event.target.value)}
-              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-blue-500"
+              className="rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-700 outline-none focus:border-blue-500"
             >
               <option value="all">All properties</option>
-              {properties.map((property) => (
-                <option key={property.id} value={property.id}>{property.name}</option>
-              ))}
+              {properties.map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}
             </select>
-            <button
-              onClick={status?.connected ? refresh : connect}
-              className="rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700"
-            >
-              {status?.connected ? 'Refresh Cloudbeds' : 'Connect Cloudbeds'}
-            </button>
+            {!status?.connected && !loading && (
+              <button onClick={connect} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white">Connect Cloudbeds</button>
+            )}
+            {status?.connected && <div className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700">Live sync</div>}
           </>
         }
       />
 
-      {error && (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
-          <div className="text-sm font-semibold text-rose-800">Cloudbeds sync issue</div>
-          <div className="mt-1 text-xs text-rose-700">{error}</div>
+      {(error || localError) && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
+          {localError || error}
+        </div>
+      )}
+      {notice && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
+          {notice}
         </div>
       )}
 
-      {!status?.connected && !loading && !error && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          Connect Cloudbeds to populate the PMS with live reservations, guests and rooms.
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        <MetricCard label="Arrivals today" value={loading ? '…' : displayArrivals} helper={`${upcoming.length} arriving in next 7 days`} tone="blue" />
-        <MetricCard label="Departures today" value={loading ? '…' : displayDepartures} helper="Scheduled departures" />
-        <MetricCard label="In house" value={loading ? '…' : displayInHouse} helper="Currently staying" tone="green" />
-        <MetricCard label="Occupancy" value={loading ? '…' : `${occupancy}%`} helper={`${occupiedRooms}/${scopedRooms.length} tracked rooms`} />
-        <MetricCard label="Missing info" value={loading ? '…' : missingInfo.length} helper="Arrival/departure details" tone={missingInfo.length ? 'amber' : 'green'} />
-      </div>
-
-      <div className="grid grid-cols-1 gap-5 2xl:grid-cols-[1.65fr_0.85fr]">
-        <Panel
-          title="Today's arrivals"
-          description="Guests due to arrive today, ordered by arrival time."
-          action={<a href="/reception" className="text-sm font-semibold text-blue-600 hover:text-blue-700">Open Front Desk</a>}
-        >
-          {todayArrivals.length ? (
-            <TableShell>
-              <thead>
-                <tr>
-                  <Th>Time</Th>
-                  <Th>Guest</Th>
-                  <Th>Reservation</Th>
-                  <Th>Room</Th>
-                  <Th>Status</Th>
-                  <Th>Property</Th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {todayArrivals.map((reservation) => (
-                  <tr key={reservation.id} className="hover:bg-slate-50/70">
-                    <Td className="font-semibold text-slate-950">{formatTime(reservation.arrivalTime)}</Td>
-                    <Td>
-                      <div className="font-semibold text-slate-950">{reservation.guestName}</div>
-                      <div className="mt-0.5 text-xs text-slate-500">{reservation.guestEmail || reservation.guestPhone || 'No contact details'}</div>
-                    </Td>
-                    <Td className="font-mono text-xs">{reservation.id}</Td>
-                    <Td>{reservation.roomNumber || 'Unassigned'}</Td>
-                    <Td><StatusBadge status={reservation.status} /></Td>
-                    <Td>{reservation.property?.name || 'Cloudbeds property'}</Td>
-                  </tr>
-                ))}
-              </tbody>
-            </TableShell>
-          ) : (
-            <EmptyState title="No arrivals today" description="Cloudbeds has no active arrivals for the selected property today." />
-          )}
-        </Panel>
-
-        <div className="space-y-5">
-          <Panel title="Front desk snapshot" description="Today's movement">
-            <div className="divide-y divide-slate-100">
-              <SnapshotRow label="Arrivals" value={displayArrivals} />
-              <SnapshotRow label="Departures" value={displayDepartures} />
-              <SnapshotRow label="In-house guests" value={displayInHouse} />
-              <SnapshotRow label="Reservations needing info" value={missingInfo.length} warning={missingInfo.length > 0} />
-            </div>
-          </Panel>
-
-          <Panel title="Cloudbeds connection" description="Sandbox integration status">
-            <div className="space-y-4 p-5">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-slate-600">Status</span>
-                <StatusBadge
-                  status={
-                    error
-                      ? 'error'
-                      : status?.connected && status?.dataStatus === 'empty'
-                        ? 'review'
-                        : status?.connected
-                          ? 'healthy'
-                          : 'not connected'
-                  }
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-slate-600">Reservations loaded</span>
-                <span className="text-sm font-semibold text-slate-950">{reservations.length}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-slate-600">Properties detected</span>
-                <span className="text-sm font-semibold text-slate-950">{properties.length}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-slate-600">API target</span>
-                <span className="max-w-[220px] truncate text-right text-xs font-medium text-slate-700" title={status?.cloudbedsApiBase || ''}>
-                  {status?.cloudbedsApiBase ? status.cloudbedsApiBase.replace(/^https?:\/\//, '') : 'Resolving…'}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-slate-600">Property IDs</span>
-                <span className="max-w-[220px] truncate text-right text-xs font-medium text-slate-700">
-                  {(status?.connectedPropertyIds || []).join(', ') || 'Not detected yet'}
-                </span>
-              </div>
-              <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-50 p-3 text-xs">
-                <div>
-                  <div className="text-slate-500">Guests</div>
-                  <div className="mt-1 font-bold text-slate-900">{accessCounts.guests || 0}</div>
-                </div>
-                <div>
-                  <div className="text-slate-500">Rooms</div>
-                  <div className="mt-1 font-bold text-slate-900">{accessCounts.rooms || 0}</div>
-                </div>
-                <div>
-                  <div className="text-slate-500">Housekeeping</div>
-                  <div className="mt-1 font-bold text-slate-900">{accessCounts.housekeeping || 0}</div>
-                </div>
-                <div>
-                  <div className="text-slate-500">Reservation API</div>
-                  <div className="mt-1 truncate font-bold text-slate-900" title={status?.cloudbedsReservationEndpoint || diagnostics?.reservationEndpoint || ''}>
-                    {status?.cloudbedsReservationEndpoint || diagnostics?.reservationEndpoint || '—'}
-                  </div>
-                </div>
-              </div>
-              {missingScopes.length > 0 && (
-                <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
-                  <div className="text-xs font-semibold text-amber-800">Cloudbeds permissions still missing</div>
-                  <div className="mt-1 text-xs text-amber-700">{missingScopes.join(', ')}</div>
-                </div>
-              )}
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-slate-600">Last sync</span>
-                <span className="text-right text-xs font-medium text-slate-700">{status?.lastSyncAt || 'Live request'}</span>
-              </div>
-            </div>
-          </Panel>
-        </div>
-      </div>
-
-      <Panel title="Upcoming arrivals" description="Next seven days from Cloudbeds">
-        {upcoming.length ? (
+      <Panel
+        title="1. Front Desk"
+        description="Today's and tomorrow's arrivals across all properties. Arrival/departure times, online check-in and notes are SEM PMS fields."
+        action={
+          <div className="flex gap-2 text-xs font-bold">
+            <span className="rounded-full bg-blue-50 px-3 py-1.5 text-blue-700">Today {todayCount}</span>
+            <span className="rounded-full bg-violet-50 px-3 py-1.5 text-violet-700">Tomorrow {tomorrowCount}</span>
+          </div>
+        }
+      >
+        {loading ? (
+          <div className="p-8 text-sm text-slate-500">Loading Front Desk…</div>
+        ) : frontDeskRows.length ? (
           <TableShell>
             <thead>
               <tr>
                 <Th>Date</Th>
+                <Th>Property</Th>
                 <Th>Guest</Th>
-                <Th>Room</Th>
-                <Th>Nights</Th>
-                <Th>Source</Th>
-                <Th>Status</Th>
+                <Th>Guests</Th>
+                <Th>Arrival time</Th>
+                <Th>Departure time</Th>
+                <Th>Phone</Th>
+                <Th>Online check-in</Th>
+                <Th>Notes</Th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {upcoming.map((reservation) => (
-                <tr key={reservation.id} className="hover:bg-slate-50/70">
-                  <Td className="font-semibold text-slate-950">{formatDate(reservation.arrivalDate)}</Td>
-                  <Td>{reservation.guestName}</Td>
-                  <Td>{reservation.roomNumber || 'Unassigned'}</Td>
-                  <Td>{reservation.nights || '—'}</Td>
-                  <Td>{reservation.cloudbedsSource || 'Cloudbeds'}</Td>
-                  <Td><StatusBadge status={reservation.status} /></Td>
-                </tr>
-              ))}
+              {frontDeskRows.map((reservation) => {
+                const isTomorrow = reservation.arrivalDate === tomorrow;
+                const arrivalValue = draftValue(frontDrafts, reservation.id, 'arrivalTime', reservation.arrivalTime || '');
+                const departureValue = draftValue(frontDrafts, reservation.id, 'departureTime', reservation.departureTime || '');
+                const onlineValue = draftValue(frontDrafts, reservation.id, 'onlineCheckin', Boolean(reservation.onlineCheckin));
+                const notesValue = draftValue(frontDrafts, reservation.id, 'notes', reservation.guestNotes || '');
+                return (
+                  <tr key={reservation.id} className="align-top hover:bg-slate-50/60">
+                    <Td>
+                      <div className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold ${isTomorrow ? 'bg-violet-50 text-violet-700' : 'bg-blue-50 text-blue-700'}`}>
+                        {isTomorrow ? 'Tomorrow' : 'Today'}
+                      </div>
+                      <div className="mt-1 text-[11px] text-slate-400">{formatDate(reservation.arrivalDate)}</div>
+                    </Td>
+                    <Td><div className="max-w-40 text-sm font-semibold text-slate-800">{propertyName(reservation.propertyId)}</div></Td>
+                    <Td>
+                      <div className="font-semibold text-slate-950">{reservation.guestName}</div>
+                      <div className="mt-1 text-[10px] font-mono text-slate-400">#{reservation.id}</div>
+                    </Td>
+                    <Td className="font-bold text-slate-900">{Number(reservation.guestCount || 1)}</Td>
+                    <Td>
+                      <input
+                        type="time"
+                        value={arrivalValue}
+                        disabled={!canEditFrontDesk}
+                        onChange={(event) => setFrontDraft(reservation.id, 'arrivalTime', event.target.value)}
+                        onBlur={(event) => {
+                          if (event.target.value !== String(reservation.arrivalTime || '')) saveFrontDesk(reservation, 'arrivalTime', event.target.value);
+                        }}
+                        className={inputClass}
+                      />
+                      {savingKey === `reservation:${reservation.id}:arrivalTime` && <div className="mt-1 text-[10px] font-bold text-blue-600">Saving…</div>}
+                    </Td>
+                    <Td>
+                      <input
+                        type="time"
+                        value={departureValue}
+                        disabled={!canEditFrontDesk}
+                        onChange={(event) => setFrontDraft(reservation.id, 'departureTime', event.target.value)}
+                        onBlur={(event) => {
+                          if (event.target.value !== String(reservation.departureTime || '')) saveFrontDesk(reservation, 'departureTime', event.target.value);
+                        }}
+                        className={inputClass}
+                      />
+                    </Td>
+                    <Td>
+                      {reservation.guestPhone ? <a href={`tel:${reservation.guestPhone}`} className="whitespace-nowrap text-sm font-semibold text-blue-700">{reservation.guestPhone}</a> : <span className="text-slate-400">—</span>}
+                    </Td>
+                    <Td>
+                      <select
+                        value={onlineValue ? 'yes' : 'no'}
+                        disabled={!canEditFrontDesk}
+                        onChange={(event) => {
+                          const next = event.target.value === 'yes';
+                          setFrontDraft(reservation.id, 'onlineCheckin', next);
+                          saveFrontDesk(reservation, 'onlineCheckin', next);
+                        }}
+                        className={compactSelect}
+                      >
+                        <option value="no">No</option>
+                        <option value="yes">Yes</option>
+                      </select>
+                    </Td>
+                    <Td>
+                      <textarea
+                        rows={2}
+                        value={notesValue}
+                        disabled={!canEditFrontDesk}
+                        onChange={(event) => setFrontDraft(reservation.id, 'notes', event.target.value)}
+                        onBlur={(event) => {
+                          if (event.target.value !== String(reservation.guestNotes || '')) saveFrontDesk(reservation, 'notes', event.target.value);
+                        }}
+                        placeholder="Notes…"
+                        className="min-w-[180px] resize-none rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                      />
+                    </Td>
+                  </tr>
+                );
+              })}
             </tbody>
           </TableShell>
         ) : (
-          <EmptyState title="No upcoming arrivals" description="No arrivals are scheduled in the next seven days." />
+          <EmptyState title="No arrivals today or tomorrow" description="No active Cloudbeds reservations match the selected property." />
+        )}
+      </Panel>
+
+      <Panel
+        title="2. Housekeeping"
+        description="Room readiness and supplies. Check-in time, check-out time and guest count are read automatically from the Front Desk / reservation data."
+        action={<span className="rounded-full bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-700">Dirty {dirtyCount}</span>}
+      >
+        {loading ? (
+          <div className="p-8 text-sm text-slate-500">Loading Housekeeping…</div>
+        ) : housekeepingRows.length ? (
+          <TableShell>
+            <thead>
+              <tr>
+                <Th>Property</Th>
+                <Th>Room</Th>
+                <Th>Cleanliness</Th>
+                <Th>Refill</Th>
+                <Th>Extra linens</Th>
+                <Th>Check-out time</Th>
+                <Th>Check-in time</Th>
+                <Th>Guests</Th>
+                <Th>Movement</Th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {housekeepingRows.map(({ room, propertyName: roomProperty, housekeeping: hk, checkOutTime, checkInTime, guestCount, movement }) => {
+                const conditionFallback = ['clean', 'dirty', 'inspected'].includes(String(hk.roomCondition || '')) ? hk.roomCondition : 'dirty';
+                const condition = draftValue(housekeepingDrafts, room.id, 'roomCondition', conditionFallback);
+                const refill = draftValue(housekeepingDrafts, room.id, 'refill', Boolean(hk.refill));
+                const extraLinens = draftValue(housekeepingDrafts, room.id, 'extraLinens', hk.extraLinens || '');
+                return (
+                  <tr key={room.id} className="align-top hover:bg-slate-50/60">
+                    <Td><div className="max-w-44 text-sm font-semibold text-slate-800">{roomProperty}</div></Td>
+                    <Td>
+                      <div className="font-bold text-slate-950">{room.roomNumber || room.id}</div>
+                      <div className="mt-1 text-[11px] text-slate-400">{room.roomType || 'Room'}</div>
+                    </Td>
+                    <Td>
+                      <select
+                        value={condition}
+                        disabled={!canEditHousekeeping}
+                        onChange={(event) => {
+                          const next = event.target.value;
+                          setHousekeepingDraft(room.id, 'roomCondition', next);
+                          saveHousekeeping(room, 'roomCondition', next);
+                        }}
+                        className={compactSelect}
+                      >
+                        <option value="clean">Clean</option>
+                        <option value="dirty">Dirty</option>
+                        <option value="inspected">Inspected</option>
+                      </select>
+                    </Td>
+                    <Td>
+                      <select
+                        value={refill ? 'yes' : 'no'}
+                        disabled={!canEditHousekeeping}
+                        onChange={(event) => {
+                          const next = event.target.value === 'yes';
+                          setHousekeepingDraft(room.id, 'refill', next);
+                          saveHousekeeping(room, 'refill', next);
+                        }}
+                        className={compactSelect}
+                      >
+                        <option value="no">No</option>
+                        <option value="yes">Yes</option>
+                      </select>
+                    </Td>
+                    <Td>
+                      <input
+                        value={extraLinens}
+                        disabled={!canEditHousekeeping}
+                        onChange={(event) => setHousekeepingDraft(room.id, 'extraLinens', event.target.value)}
+                        onBlur={(event) => {
+                          if (event.target.value !== String(hk.extraLinens || '')) saveHousekeeping(room, 'extraLinens', event.target.value);
+                        }}
+                        placeholder="e.g. 2 towels"
+                        className={inputClass}
+                      />
+                    </Td>
+                    <Td className="font-semibold text-slate-900">{formatTime(checkOutTime)}</Td>
+                    <Td className="font-semibold text-slate-900">{formatTime(checkInTime)}</Td>
+                    <Td className="font-bold text-slate-950">{guestCount}</Td>
+                    <Td><StatusBadge status={movement} /></Td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </TableShell>
+        ) : (
+          <EmptyState title="No rooms available" description="Cloudbeds did not return rooms for the selected property." />
         )}
       </Panel>
     </div>
   );
 };
-
-const SnapshotRow = ({ label, value, warning = false }) => (
-  <div className="flex items-center justify-between px-5 py-3.5">
-    <span className="text-sm text-slate-600">{label}</span>
-    <span className={`text-sm font-bold ${warning ? 'text-amber-700' : 'text-slate-950'}`}>{value}</span>
-  </div>
-);
 
 export default DashboardPage;
