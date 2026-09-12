@@ -222,3 +222,189 @@ button:disabled {
   border: 2px solid transparent;
   background-clip: padding-box;
 }
+
+
+/* Responsive application foundation */
+html {
+  min-height: 100%;
+  min-height: 100dvh;
+  overscroll-behavior-y: none;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  min-height: 100%;
+  min-height: 100dvh;
+  overflow-x: hidden;
+  overscroll-behavior-y: none;
+}
+
+#root {
+  min-height: 100dvh;
+}
+
+.pms-app {
+  min-height: 100dvh;
+  overflow-x: clip;
+}
+
+.pms-safe-top {
+  padding-top: env(safe-area-inset-top);
+}
+
+.pms-safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.pms-table-shell {
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  position: relative;
+}
+
+.pms-table-shell::after {
+  content: "";
+  position: sticky;
+  right: 0;
+  display: block;
+  float: right;
+  width: 22px;
+  height: 1px;
+  pointer-events: none;
+}
+
+.pms-page-actions > * {
+  max-width: 100%;
+}
+
+.pms-mobile-bottom-nav {
+  padding-bottom: max(8px, env(safe-area-inset-bottom));
+}
+
+.pms-mobile-drawer {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.pms-touch-scroll {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+
+@media (max-width: 639px) {
+  .pms-page-actions > button,
+  .pms-page-actions > select,
+  .pms-page-actions > a {
+    min-height: 44px;
+  }
+
+  .pms-page-actions > button,
+  .pms-page-actions > a {
+    flex: 1 1 auto;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .pms-app input:not([type="checkbox"]):not([type="radio"]),
+  .pms-app textarea,
+  .pms-app select {
+    font-size: 16px !important;
+  }
+
+  .pms-app input[type="date"],
+  .pms-app input[type="time"] {
+    min-height: 44px;
+  }
+
+  .pms-app .mobile-stack-actions {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+  }
+
+  .pms-app .mobile-full {
+    width: 100% !important;
+  }
+
+  .pms-table-shell {
+    margin-left: -1px;
+    margin-right: -1px;
+  }
+
+  .pms-table-shell table {
+    font-size: 13px;
+  }
+
+  .pms-calendar-scroll {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+  }
+
+  .pms-calendar-grid {
+    min-width: 760px;
+  }
+}
+
+@media (min-width: 640px) and (max-width: 1199px) {
+  .pms-app main {
+    width: 100%;
+  }
+
+  .pms-calendar-scroll {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .pms-calendar-grid {
+    min-width: 900px;
+  }
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .pms-app button,
+  .pms-app a,
+  .pms-app select {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .pms-app button:not(.pms-compact-control),
+  .pms-app a.pms-touch-target {
+    min-height: 44px;
+  }
+
+  .pms-app tbody tr:hover {
+    background-color: inherit;
+  }
+}
+
+@media (display-mode: standalone) {
+  body {
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  input,
+  textarea {
+    user-select: text;
+    -webkit-user-select: text;
+  }
+
+  .pms-app {
+    padding-top: env(safe-area-inset-top);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
