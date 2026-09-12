@@ -56,6 +56,60 @@ const applyVerifiedRoomOverlays = (reservations, overlays) => {
   });
 };
 
+const applyLocalReservationOperations = (reservations, operations = []) => {
+  const map = new Map((operations || []).map((item) => [String(item.reservationId), item]));
+  return reservations.map((reservation) => {
+    const local = map.get(String(reservation.id));
+    if (!local) return reservation;
+    const statusMap = { checked_in: 'in_house', checked_out: 'checked_out', no_show: 'no_show', cancelled: 'cancelled', confirmed: reservation.status };
+    return {
+      ...reservation,
+      status: statusMap[local.status] || local.status || reservation.status,
+      localOperationalStatus: local.status || null,
+      actualArrivalTime: local.actualArrivalTime || null,
+      actualDepartureTime: local.actualDepartureTime || null,
+      guestNotes: local.guestNotes || '',
+      specialRequests: local.specialRequests ?? reservation.specialRequests,
+      localUpdatedAt: local.updatedAt || null,
+    };
+  });
+};
+
+const deriveLocalHousekeeping = (rooms, reservations, stored = []) => {
+  const today = localDateKey();
+  const storedMap = new Map((stored || []).map((item) => [String(item.roomId), item]));
+  return rooms.map((room) => {
+    const roomId = String(room.id);
+    const current = storedMap.get(roomId);
+    const roomReservations = reservations.filter((reservation) => {
+      const ids = reservation.roomIds?.length ? reservation.roomIds.map(String) : [String(reservation.roomId || '')];
+      return ids.includes(roomId) && reservation.status !== 'cancelled';
+    });
+    const checkoutToday = roomReservations.some((r) => r.departureDate === today && r.status !== 'cancelled');
+    const occupiedAfterFirstNight = roomReservations.some((r) =>
+      r.arrivalDate && r.departureDate && r.arrivalDate < today && r.departureDate > today &&
+      !['checked_out','no_show','cancelled'].includes(String(r.localOperationalStatus || r.status || ''))
+    );
+    const currentIsToday = String(current?.date || '').slice(0,10) === today;
+    const automaticDirty = checkoutToday || occupiedAfterFirstNight;
+    const condition = currentIsToday ? current.roomCondition : automaticDirty ? 'dirty' : (current?.roomCondition || 'clean');
+    return {
+      roomId,
+      roomNumber: room.roomNumber,
+      roomType: room.roomType,
+      propertyId: room.propertyId,
+      roomCondition: condition,
+      status: condition,
+      comments: current?.comments || '',
+      roomOccupied: room.occupancyStatus === 'occupied',
+      frontdeskStatus: room.occupancyStatus,
+      date: currentIsToday ? current.date : today,
+      automaticDirty: automaticDirty && !currentIsToday,
+      source: 'sem_pms_local',
+    };
+  });
+};
+
 const reconcileRoomOccupancy = (rooms, reservations) => {
   const today = localDateKey();
   return rooms.map((room) => {
@@ -228,17 +282,30 @@ export const CloudbedsDataProvider = ({ children }) => {
         data = reservationsResponse.data;
       }
 
-      const nextReservations = applyVerifiedRoomOverlays(
+      const [reservationOpsResponse, housekeepingOpsResponse] = await Promise.all([
+        api.get('/operations/reservations').catch(() => ({ data: { data: [] } })),
+        api.get('/operations/housekeeping').catch(() => ({ data: { data: [] } })),
+      ]);
+      const verifiedReservations = applyVerifiedRoomOverlays(
         data.reservations || [],
         verifiedRoomAssignmentsRef.current
       );
+      const nextReservations = applyLocalReservationOperations(
+        verifiedReservations,
+        reservationOpsResponse.data?.data || []
+      );
       const nextRooms = reconcileRoomOccupancy(data.rooms || [], nextReservations);
+      const localHousekeeping = deriveLocalHousekeeping(
+        nextRooms,
+        nextReservations,
+        housekeepingOpsResponse.data?.data || []
+      );
 
       setReservations(nextReservations);
       setProperties(data.properties || []);
       setRooms(nextRooms);
       setCustomers(data.guests || []);
-      setHousekeeping(data.housekeeping || []);
+      setHousekeeping(localHousekeeping);
       setDashboard(data.dashboard || null);
       setDiagnostics(data.diagnostics || null);
       setStatus((current) => ({
@@ -318,7 +385,7 @@ export const CloudbedsDataProvider = ({ children }) => {
       }
       return result;
     } catch (requestError) {
-      const message = requestError.response?.data?.message || requestError.message || 'Cloudbeds write-back failed.';
+      const message = requestError.response?.data?.message || requestError.message || 'SEM PMS local update failed.';
       const requestId = requestError.response?.data?.requestId;
       const decorated = requestId ? `${message} · Request ID ${requestId}` : message;
       setWriteState({
@@ -332,7 +399,7 @@ export const CloudbedsDataProvider = ({ children }) => {
   }, [refresh]);
 
   const updateReservation = useCallback((reservationId, payload) => runWrite(
-    'reservation.update', () => api.put(`/integrations/cloudbeds/operations/reservations/${reservationId}`, payload)
+    'reservation.local_update', () => api.put(`/operations/reservations/${reservationId}`, payload)
   ), [runWrite]);
 
   const assignRoom = useCallback((reservationId, payload) => runWrite(
@@ -344,7 +411,7 @@ export const CloudbedsDataProvider = ({ children }) => {
   ), [runWrite]);
 
   const updateHousekeeping = useCallback((roomId, payload) => runWrite(
-    'housekeeping.update', () => api.put(`/integrations/cloudbeds/operations/rooms/${roomId}/housekeeping`, payload)
+    'housekeeping.local_update', () => api.put(`/operations/housekeeping/${roomId}`, payload)
   ), [runWrite]);
 
   const createRoomBlock = useCallback((payload) => runWrite(
