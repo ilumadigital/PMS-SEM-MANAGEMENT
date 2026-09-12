@@ -5,6 +5,8 @@ import api from '../services/api';
 import { EmptyState, MetricCard, PageHeader, Panel, StatusBadge, TableShell, Td, Th } from '../components/PmsUi';
 
 const editRoles = ['admin', 'manager', 'management', 'reception', 'driversadmin', 'dispatcher'];
+const ATH_AIRPORT_LABEL = 'ATH Airport';
+const ATH_AIRPORT_MAP_URL = 'https://maps.app.goo.gl/psJeMC1mkSGvzhML8';
 const initialForm = { reservationId:'', approximateArrivalTimeAirport:'', cabinLuggages:0, luggages:0, passengers:1, flightInfo:'', driver:'', driverUserId:'', vehicle:'', notes:'' };
 
 const ShuttlePage = () => {
@@ -65,7 +67,7 @@ const ShuttlePage = () => {
         luggages:Number(form.luggages||0),
         passengers:Number(form.passengers||1),
         flightInfo:form.flightInfo,
-        pickupLocation:'Airport',
+        pickupLocation:ATH_AIRPORT_LABEL,
         destination:property?.name || selected.property?.name || 'Property',
         driver:form.driver,
         driverUserId:form.driverUserId || null,
@@ -85,7 +87,7 @@ const ShuttlePage = () => {
   };
 
   return <div className="space-y-6">
-    <PageHeader title="Transfers" description="Drivers Admin assigns each shuttle to a Driver. Pickup is always the airport and drop-off is the reservation property." actions={<div className="flex gap-2"><button onClick={load} className="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Refresh</button>{canEdit&&<button onClick={()=>setShowForm(v=>!v)} className="rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-blue-700">{showForm?'Close':'Add free shuttle'}</button>}</div>} />
+    <PageHeader title="Transfers" description="Drivers Admin assigns each shuttle to a Driver. Pickup is always ATH Airport and drop-off is the reservation property." actions={<div className="flex gap-2"><button onClick={load} className="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Refresh</button>{canEdit&&<button onClick={()=>setShowForm(v=>!v)} className="rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-blue-700">{showForm?'Close':'Add free shuttle'}</button>}</div>} />
 
     {error&&<div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
     {notice&&<div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">{notice}</div>}
@@ -98,7 +100,7 @@ const ShuttlePage = () => {
     </div>
 
     {showForm&&canEdit&&<Panel title="Reservation free shuttle" description="One free shuttle per reservation. Guest and property are pulled from the Cloudbeds read-only reservation."><form onSubmit={createTransfer} className="grid gap-4 p-5 md:grid-cols-2 xl:grid-cols-4">
-      <label className="md:col-span-2 xl:col-span-2"><span className="mb-1.5 block text-xs font-semibold text-slate-600">Reservation / Guest</span><select required value={form.reservationId} onChange={e=>setForm({...form,reservationId:e.target.value})} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"><option value="">Select reservation</option>{eligibleReservations.map(r=><option key={r.id} value={r.id}>{r.guestName} · {r.arrivalDate} · Room {r.roomNumber||'—'} · #{r.id}</option>)}</select></label>
+      <div className="md:col-span-2 xl:col-span-4 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900"><span className="font-bold">Pickup:</span> ATH Airport · <a href={ATH_AIRPORT_MAP_URL} target="_blank" rel="noreferrer" className="font-black underline">Open exact Google Maps location</a></div><label className="md:col-span-2 xl:col-span-2"><span className="mb-1.5 block text-xs font-semibold text-slate-600">Reservation / Guest</span><select required value={form.reservationId} onChange={e=>setForm({...form,reservationId:e.target.value})} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"><option value="">Select reservation</option>{eligibleReservations.map(r=><option key={r.id} value={r.id}>{r.guestName} · {r.arrivalDate} · Room {r.roomNumber||'—'} · #{r.id}</option>)}</select></label>
       <Field label="Approx. arrival time in Airport" type="time" required value={form.approximateArrivalTimeAirport} onChange={v=>setForm({...form,approximateArrivalTimeAirport:v})}/>
       <Field label="Guests" type="number" min="1" value={form.passengers} onChange={v=>setForm({...form,passengers:v})}/>
       <Field label="Cabin luggages" type="number" min="0" value={form.cabinLuggages} onChange={v=>setForm({...form,cabinLuggages:v})}/>
