@@ -41,10 +41,11 @@ const CleaningMobile = () => {
 
   const assignCleaner = async (item, cleanerUserId) => {
     if (!cleanerUserId) return;
-    const { room, propertyId } = roomContext(item);
+    const { room, propertyId, property } = roomContext(item);
     try {
       await api.post('/management/housekeeping-assignments',{
         propertyId,
+        propertyName:property?.name || '',
         roomId:item.roomId,
         roomNumber:item.roomNumber || room?.roomNumber || '',
         roomType:item.roomType || room?.roomType || '',
