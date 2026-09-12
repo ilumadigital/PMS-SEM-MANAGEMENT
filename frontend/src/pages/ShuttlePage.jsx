@@ -16,6 +16,7 @@ const ShuttlePage = () => {
   const [filter,setFilter]=useState('all');
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState('');
+  const [notice,setNotice]=useState('');
   const [showForm,setShowForm]=useState(false);
   const [form,setForm]=useState(initialForm);
   const [saving,setSaving]=useState(false);
@@ -46,15 +47,16 @@ const ShuttlePage = () => {
     e.preventDefault();
     if(!selected){ setError('Select a Cloudbeds reservation.'); return; }
     if(!form.approximateArrivalTimeAirport){ setError('Approximate arrival time in Airport is required.'); return; }
-    setSaving(true); setError('');
+    setSaving(true); setError(''); setNotice('');
     const property=properties.find(p=>String(p.id)===String(selected.propertyId));
     const scheduledAt=`${selected.arrivalDate}T${form.approximateArrivalTimeAirport}:00`;
     try {
-      await api.post('/management/transfers',{
+      const response=await api.post('/management/transfers',{
         reservationId:selected.id,
         propertyId:selected.propertyId,
         guestName:selected.guestName,
         guestPhone:selected.guestPhone || '',
+        guestEmail:selected.guestEmail || '',
         scheduledAt,
         approximateArrivalTimeAirport:form.approximateArrivalTimeAirport,
         cabinLuggages:Number(form.cabinLuggages||0),
@@ -67,6 +69,8 @@ const ShuttlePage = () => {
         vehicle:form.vehicle,
         notes:form.notes,
       });
+      const notification=response.data?.customerNotification;
+      setNotice(notification?.sent ? 'Free shuttle saved and confirmation emailed to the guest.' : 'Free shuttle saved. Guest Portal updated; email confirmation was not sent.');
       setForm(initialForm); setShowForm(false); await load();
     } catch(err){ setError(err.response?.data?.error || err.message); }
     finally{ setSaving(false); }
@@ -81,6 +85,7 @@ const ShuttlePage = () => {
     <PageHeader title="Transfers" description="Every reservation is eligible for one free airport shuttle. Transfer data is stored locally in SEM PMS; Cloudbeds remains read-only." actions={<div className="flex gap-2"><button onClick={load} className="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Refresh</button>{canEdit&&<button onClick={()=>setShowForm(v=>!v)} className="rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-blue-700">{showForm?'Close':'Add free shuttle'}</button>}</div>} />
 
     {error&&<div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
+    {notice&&<div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">{notice}</div>}
 
     <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
       <MetricCard label="Free shuttles" value={counts.total}/>
