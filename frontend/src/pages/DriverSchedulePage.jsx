@@ -33,7 +33,7 @@ const monthDays = (monthKey) => {
 const monthLabel = (key) => new Intl.DateTimeFormat('en-GB', { month: 'long', year: 'numeric' }).format(dateFromKey(key));
 const scheduledDate = (value) => String(value || '').slice(0, 10);
 const scheduledTime = (row) => row.approximate_arrival_time_airport || String(row.scheduled_at || '').slice(11, 16) || '—';
-const mapsRoute = (to) => `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent('ATH Airport')}&destination=${encodeURIComponent(to || '')}`;
+const mapsPropertySearch = (propertyName) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(propertyName || '')}`;
 
 const statusTone = (status) => {
   const normalized = String(status || '').toLowerCase();
@@ -123,7 +123,7 @@ const DriverSchedulePage = () => {
                 <div className="mt-1 font-bold text-slate-900">{row.destination || 'Property'}</div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <a href={ATH_AIRPORT_MAP_URL} target="_blank" rel="noreferrer" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-black text-slate-700">ATH pickup map ↗</a>
-                  <a href={mapsRoute(row.destination)} target="_blank" rel="noreferrer" className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-black text-white">Route to property ↗</a>
+                  <a href={mapsPropertySearch(row.destination)} target="_blank" rel="noreferrer" className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-black text-white">Search property in Google Maps ↗</a>
                 </div>
               </Td>
               <Td>
@@ -164,7 +164,7 @@ const DriverSchedulePage = () => {
                     <div className="mt-1 truncate opacity-80">ATH → {row.destination || 'Property'}</div>
                     <div className="mt-2 flex gap-1">
                       <a href={ATH_AIRPORT_MAP_URL} target="_blank" rel="noreferrer" className="rounded-md border border-current/20 bg-white/70 px-2 py-1 font-black">Pickup</a>
-                      <a href={mapsRoute(row.destination)} target="_blank" rel="noreferrer" className="rounded-md border border-current/20 bg-white/70 px-2 py-1 font-black">Route</a>
+                      <a href={mapsPropertySearch(row.destination)} target="_blank" rel="noreferrer" className="rounded-md border border-current/20 bg-white/70 px-2 py-1 font-black">Property map</a>
                     </div>
                     <div className="mt-2"><DriverStatusActions compact row={row} saving={saving === String(row.id)} onUpdate={update} /></div>
                   </article>)}
