@@ -21,6 +21,7 @@ const guestPortalRoutes = require('./routes/guestPortal.routes');
 const guestManagementRoutes = require('./routes/guestManagement.routes');
 const operationsRoutes = require('./routes/operations.routes');
 const managementRoutes = require('./routes/management.routes');
+const adminRoutes = require('./routes/admin.routes');
 
 app.use(cors());
 app.use(express.json());
@@ -47,6 +48,7 @@ app.use('/api/guest-portal', guestPortalRoutes);
 app.use('/api/guest-management', guestManagementRoutes);
 app.use('/api/operations', operationsRoutes);
 app.use('/api/management', managementRoutes);
+app.use('/api/admin', adminRoutes);
 
 async function testDatabaseConnection() {
     let conn;
