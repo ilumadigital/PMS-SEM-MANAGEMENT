@@ -44,13 +44,13 @@ const ProtectedRoutes = () => {
       <Route path="dashboard" element={<Gate user={user} roles={ALL_STAFF}><RoleHome user={user} /></Gate>} />
       <Route path="reception" element={<Gate user={user} roles={[...COMPANY_MANAGERS,'reception']}><ReceptionDash /></Gate>} />
       <Route path="calendar" element={<Gate user={user} roles={[...COMPANY_MANAGERS,'reception','supervisor']}><CalendarPage /></Gate>} />
-      <Route path="bookings" element={<Gate user={user} roles={['admin','management','reception','supervisor']}><BookingsPage /></Gate>} />
+      <Route path="bookings" element={<Gate user={user} roles={[...COMPANY_MANAGERS,'reception','supervisor']}><BookingsPage /></Gate>} />
       <Route path="guest-management" element={<Gate user={user} roles={['admin','management','reception','supervisor']}><GuestPortalAdminPage /></Gate>} />
-      <Route path="customers" element={<Gate user={user} roles={['admin','management','reception']}><CustomersPage /></Gate>} />
+      <Route path="customers" element={<Gate user={user} roles={[...COMPANY_MANAGERS,'reception']}><CustomersPage /></Gate>} />
       <Route path="rooms" element={<Gate user={user} roles={[...COMPANY_MANAGERS,'reception','supervisor','cleaneradmin']}><RoomsPage /></Gate>} />
       <Route path="statistics" element={<Gate user={user} roles={[...COMPANY_MANAGERS,'supervisor']}><StatisticsPage /></Gate>} />
       <Route path="settings" element={<Gate user={user} roles={['admin']}><SettingsPage /></Gate>} />
-      <Route path="supervisor" element={<Gate user={user} roles={['admin','management','supervisor']}><SupervisorPanel /></Gate>} />
+      <Route path="supervisor" element={<Gate user={user} roles={[...COMPANY_MANAGERS,'supervisor']}><SupervisorPanel /></Gate>} />
       <Route path="my-cleaning" element={<Gate user={user} roles={['cleaner','cleaning']}><CleanerSchedulePage /></Gate>} />
       <Route path="my-shuttles" element={<Gate user={user} roles={['driver']}><DriverSchedulePage /></Gate>} />
       <Route path="cleaning-mobile" element={<Gate user={user} roles={[...COMPANY_MANAGERS,'supervisor','cleaneradmin']}><CleaningMobile /></Gate>} />
