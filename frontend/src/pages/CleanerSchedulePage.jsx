@@ -74,14 +74,14 @@ const CleanerSchedulePage = () => {
           return <section key={day} className={`min-h-56 rounded-2xl border bg-white shadow-sm ${isToday?'border-blue-300 ring-2 ring-blue-100':'border-slate-200'}`}>
             <div className={`border-b px-4 py-3 ${isToday?'border-blue-100 bg-blue-50':'border-slate-100'}`}><div className="text-xs font-black uppercase tracking-wide text-slate-700">{prettyDay(day)}</div><div className="mt-1 text-[11px] text-slate-400">{items.length} room{items.length===1?'':'s'}</div></div>
             <div className="space-y-3 p-3">
-              {items.map(row=><article key={row.id} className="rounded-xl border border-slate-200 p-3">
+              {items.map(row=>{const actionable=day===todayKey();return <article key={row.id} className="rounded-xl border border-slate-200 p-3">
                 <div className="flex items-start justify-between gap-2"><div><div className="text-lg font-black text-slate-950">Room {row.room_number || row.room_id}</div><div className="mt-1 text-[11px] text-slate-500">{row.room_type || 'Room'} · Property {row.property_id}</div></div><StatusBadge status={row.status}/></div>
                 {row.notes&&<div className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">{row.notes}</div>}
-                <div className="mt-3 grid gap-2">
+                {actionable?<div className="mt-3 grid gap-2">
                   {row.status==='assigned'&&<button disabled={saving===String(row.id)} onClick={()=>patch(row,{status:'in_progress'})} className="min-h-10 rounded-lg border border-blue-200 bg-blue-50 text-xs font-black text-blue-700 disabled:opacity-50">Start cleaning</button>}
                   {row.status!=='completed'&&<button disabled={saving===String(row.id)} onClick={()=>markClean(row)} className="min-h-10 rounded-lg bg-emerald-600 text-xs font-black text-white disabled:opacity-50">{saving===String(row.id)?'Saving…':'Mark room Clean'}</button>}
-                </div>
-              </article>)}
+                </div>:<div className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-center text-[10px] font-bold text-slate-400">Scheduled view</div>}
+              </article>;})}
               {!items.length&&<div className="p-4 text-center text-xs text-slate-400">No assigned rooms</div>}
             </div>
           </section>;
