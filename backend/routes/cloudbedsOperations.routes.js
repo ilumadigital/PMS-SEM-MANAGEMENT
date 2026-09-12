@@ -25,9 +25,9 @@ const sendError = (res, error) => {
     });
 };
 
-const READ_ROLES = ['admin', 'management', 'reception', 'supervisor'];
-const WRITE_ROLES = ['admin', 'management', 'reception', 'supervisor'];
-const CREATE_ROLES = ['admin', 'management', 'reception'];
+const READ_ROLES = ['admin', 'manager', 'management', 'reception', 'supervisor'];
+const WRITE_ROLES = ['admin', 'manager', 'management', 'reception', 'supervisor'];
+const CREATE_ROLES = ['admin', 'manager', 'management', 'reception'];
 
 const READ_ONLY_MESSAGE = 'Direct Cloudbeds writes are disabled. Reservations, check-in/out, transfers and other operations stay in SEM PMS; housekeeping room condition is synced only through the controlled SEM PMS housekeeping flow.';
 router.use((req, res, next) => {
@@ -41,7 +41,7 @@ router.use((req, res, next) => {
     next();
 });
 
-router.get('/capabilities', protect, restrictTo('admin', 'management', 'reception', 'supervisor', 'cleaner', 'cleaning'), async (_req, res) => {
+router.get('/capabilities', protect, restrictTo('admin', 'manager', 'management', 'reception', 'supervisor', 'cleaneradmin'), async (_req, res) => {
     res.json({ success: true, ...operations.getCapabilities() });
 });
 
@@ -169,7 +169,7 @@ router.put('/guests/:guestId', protect, restrictTo(...CREATE_ROLES), async (req,
     } catch (error) { sendError(res, error); }
 });
 
-router.put('/rooms/:roomId/housekeeping', protect, restrictTo('admin', 'management', 'reception', 'supervisor', 'cleaner', 'cleaning'), async (req, res) => {
+router.put('/rooms/:roomId/housekeeping', protect, restrictTo('admin', 'manager', 'management', 'reception', 'supervisor', 'cleaneradmin'), async (req, res) => {
     try {
         const data = await operations.updateHousekeeping(req.params.roomId, req.body || {}, actor(req));
         res.json({ success: true, message: 'Housekeeping status synced to Cloudbeds.', data });
