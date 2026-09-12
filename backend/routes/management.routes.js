@@ -1,6 +1,8 @@
 const express = require('express');
 const db = require('../config/db');
 const { protect } = require('../middleware/auth.middleware');
+const guestPortalService = require('../services/guestPortal.service');
+const notificationService = require('../services/notification.service');
 
 const router = express.Router();
 const managerRoles = ['admin', 'management'];
@@ -22,6 +24,7 @@ async function ensureTables() {
     property_id VARCHAR(100) NULL,
     guest_name VARCHAR(160) NOT NULL,
     guest_phone VARCHAR(80) NULL,
+    guest_email VARCHAR(190) NULL,
     transfer_type VARCHAR(40) NOT NULL DEFAULT 'airport_pickup',
     pickup_location VARCHAR(255) NOT NULL,
     destination VARCHAR(255) NOT NULL,
@@ -41,6 +44,7 @@ async function ensureTables() {
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_transfer_schedule (scheduled_at), INDEX idx_transfer_status (status), INDEX idx_transfer_property (property_id)
   )`);
+  try { await db.query(`ALTER TABLE transfers ADD COLUMN IF NOT EXISTS guest_email VARCHAR(190) NULL AFTER guest_phone`); } catch (_) {}
   try { await db.query(`ALTER TABLE transfers ADD COLUMN IF NOT EXISTS free_shuttle TINYINT(1) NOT NULL DEFAULT 1 AFTER notes`); } catch (_) {}
   try { await db.query(`ALTER TABLE transfers ADD COLUMN IF NOT EXISTS approximate_arrival_time_airport VARCHAR(16) NULL AFTER free_shuttle`); } catch (_) {}
   try { await db.query(`ALTER TABLE transfers ADD COLUMN IF NOT EXISTS cabin_luggages INT NOT NULL DEFAULT 0 AFTER approximate_arrival_time_airport`); } catch (_) {}
@@ -86,10 +90,10 @@ router.post('/transfers', allowRoles(...editTransferRoles), async (req, res) => 
       return res.status(409).json({ error: 'This reservation already has its one free shuttle.', transferId: existing[0].id });
     }
     const result = await db.query(`INSERT INTO transfers
-      (reservation_id, property_id, guest_name, guest_phone, transfer_type, pickup_location, destination, scheduled_at,
+      (reservation_id, property_id, guest_name, guest_phone, guest_email, transfer_type, pickup_location, destination, scheduled_at,
        passengers, luggage, flight_info, driver, vehicle, notes, free_shuttle, approximate_arrival_time_airport, cabin_luggages, status, created_by)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`, [
-      String(b.reservationId), b.propertyId || null, b.guestName, b.guestPhone || null, 'free_airport_shuttle',
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`, [
+      String(b.reservationId), b.propertyId || null, b.guestName, b.guestPhone || null, b.guestEmail || null, 'free_airport_shuttle',
       b.pickupLocation || 'Airport', b.destination || 'Property', b.scheduledAt,
       Math.max(1, Number(b.passengers || 1)), Math.max(0, Number(b.luggages ?? b.luggage ?? 0)),
       b.flightInfo || null, b.driver || null, b.vehicle || null, b.notes || null,
@@ -97,7 +101,30 @@ router.post('/transfers', allowRoles(...editTransferRoles), async (req, res) => 
       b.status || (b.driver && b.vehicle ? 'scheduled' : 'unassigned'), req.user.userId
     ]);
     const rows = await db.query('SELECT * FROM transfers WHERE id = ?', [result.insertId]);
-    res.status(201).json(rows[0]);
+    const transfer = rows[0];
+    let customerNotification = { sent: false, status: 'not_attempted' };
+    try {
+      const portal = await guestPortalService.ensurePortalForReservation(b.reservationId);
+      customerNotification = await notificationService.sendFreeShuttleConfirmation({
+        to: b.guestEmail || portal.reservation?.guestEmail || '',
+        guestName: b.guestName || portal.reservation?.guestName || 'Guest',
+        propertyName: b.destination || portal.reservation?.propertyName || 'SEM Property',
+        reservationId: String(b.reservationId),
+        portalUrl: portal.portalUrl,
+        transfer: {
+          scheduledAt: b.scheduledAt,
+          approximateArrivalTimeAirport: b.approximateArrivalTimeAirport || '',
+          passengers: Math.max(1, Number(b.passengers || 1)),
+          cabinLuggages: Math.max(0, Number(b.cabinLuggages || 0)),
+          luggages: Math.max(0, Number(b.luggages ?? b.luggage ?? 0)),
+          flightInfo: b.flightInfo || '',
+        },
+      });
+    } catch (notifyError) {
+      console.error('[FREE SHUTTLE GUEST EMAIL]', notifyError.message);
+      customerNotification = { sent: false, status: 'failed', error: notifyError.message };
+    }
+    res.status(201).json({ ...transfer, customerNotification });
   } catch (error) { console.error('[TRANSFER CREATE]', error); res.status(500).json({ error: 'Could not create free shuttle.' }); }
 });
 
@@ -112,7 +139,7 @@ router.patch('/transfers/:id', allowRoles(...transferRoles), async (req, res) =>
       if (!result.affectedRows) return res.status(403).json({ error: 'This trip is not assigned to you.' });
     } else if (!editTransferRoles.includes(role)) return res.status(403).json({ error: 'Read-only access.' });
     else {
-      const fields = { reservationId:'reservation_id', propertyId:'property_id', guestName:'guest_name', guestPhone:'guest_phone', transferType:'transfer_type', pickupLocation:'pickup_location', destination:'destination', scheduledAt:'scheduled_at', passengers:'passengers', luggage:'luggage', luggages:'luggage', cabinLuggages:'cabin_luggages', approximateArrivalTimeAirport:'approximate_arrival_time_airport', flightInfo:'flight_info', driver:'driver', vehicle:'vehicle', notes:'notes', status:'status' };
+      const fields = { reservationId:'reservation_id', propertyId:'property_id', guestName:'guest_name', guestPhone:'guest_phone', guestEmail:'guest_email', transferType:'transfer_type', pickupLocation:'pickup_location', destination:'destination', scheduledAt:'scheduled_at', passengers:'passengers', luggage:'luggage', luggages:'luggage', cabinLuggages:'cabin_luggages', approximateArrivalTimeAirport:'approximate_arrival_time_airport', flightInfo:'flight_info', driver:'driver', vehicle:'vehicle', notes:'notes', status:'status' };
       const sets=[]; const values=[];
       Object.entries(fields).forEach(([key,column]) => { if (Object.prototype.hasOwnProperty.call(b,key)) { sets.push(`${column} = ?`); values.push(b[key] === '' ? null : b[key]); } });
       if (!sets.length) return res.status(400).json({ error: 'No supported fields supplied.' });
