@@ -32,12 +32,18 @@ async function ensureTables() {
     driver VARCHAR(120) NULL,
     vehicle VARCHAR(120) NULL,
     notes TEXT NULL,
+    free_shuttle TINYINT(1) NOT NULL DEFAULT 1,
+    approximate_arrival_time_airport VARCHAR(16) NULL,
+    cabin_luggages INT NOT NULL DEFAULT 0,
     status VARCHAR(30) NOT NULL DEFAULT 'unassigned',
     created_by INT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_transfer_schedule (scheduled_at), INDEX idx_transfer_status (status), INDEX idx_transfer_property (property_id)
   )`);
+  try { await db.query(`ALTER TABLE transfers ADD COLUMN IF NOT EXISTS free_shuttle TINYINT(1) NOT NULL DEFAULT 1 AFTER notes`); } catch (_) {}
+  try { await db.query(`ALTER TABLE transfers ADD COLUMN IF NOT EXISTS approximate_arrival_time_airport VARCHAR(16) NULL AFTER free_shuttle`); } catch (_) {}
+  try { await db.query(`ALTER TABLE transfers ADD COLUMN IF NOT EXISTS cabin_luggages INT NOT NULL DEFAULT 0 AFTER approximate_arrival_time_airport`); } catch (_) {}
   await db.query(`CREATE TABLE IF NOT EXISTS app_settings (
     setting_key VARCHAR(120) PRIMARY KEY, setting_value TEXT NULL, updated_by INT NULL,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -68,18 +74,31 @@ router.get('/transfers', allowRoles(...transferRoles), async (req, res) => {
 
 router.post('/transfers', allowRoles(...editTransferRoles), async (req, res) => {
   const b = req.body || {};
-  if (!b.guestName || !b.pickupLocation || !b.destination || !b.scheduledAt) return res.status(400).json({ error: 'Guest, pickup, destination and schedule are required.' });
+  if (!b.reservationId || !b.guestName || !b.scheduledAt) {
+    return res.status(400).json({ error: 'Reservation, guest and airport arrival schedule are required.' });
+  }
   try {
+    const existing = await db.query(
+      `SELECT id, status FROM transfers WHERE reservation_id = ? AND free_shuttle = 1 AND status <> 'cancelled' LIMIT 1`,
+      [String(b.reservationId)]
+    );
+    if (existing.length) {
+      return res.status(409).json({ error: 'This reservation already has its one free shuttle.', transferId: existing[0].id });
+    }
     const result = await db.query(`INSERT INTO transfers
-      (reservation_id, property_id, guest_name, guest_phone, transfer_type, pickup_location, destination, scheduled_at, passengers, luggage, flight_info, driver, vehicle, notes, status, created_by)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
-      b.reservationId || null, b.propertyId || null, b.guestName, b.guestPhone || null, b.transferType || 'airport_pickup', b.pickupLocation, b.destination,
-      b.scheduledAt, Math.max(1, Number(b.passengers || 1)), Math.max(0, Number(b.luggage || 0)), b.flightInfo || null, b.driver || null, b.vehicle || null, b.notes || null,
+      (reservation_id, property_id, guest_name, guest_phone, transfer_type, pickup_location, destination, scheduled_at,
+       passengers, luggage, flight_info, driver, vehicle, notes, free_shuttle, approximate_arrival_time_airport, cabin_luggages, status, created_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`, [
+      String(b.reservationId), b.propertyId || null, b.guestName, b.guestPhone || null, 'free_airport_shuttle',
+      b.pickupLocation || 'Airport', b.destination || 'Property', b.scheduledAt,
+      Math.max(1, Number(b.passengers || 1)), Math.max(0, Number(b.luggages ?? b.luggage ?? 0)),
+      b.flightInfo || null, b.driver || null, b.vehicle || null, b.notes || null,
+      b.approximateArrivalTimeAirport || null, Math.max(0, Number(b.cabinLuggages || 0)),
       b.status || (b.driver && b.vehicle ? 'scheduled' : 'unassigned'), req.user.userId
     ]);
     const rows = await db.query('SELECT * FROM transfers WHERE id = ?', [result.insertId]);
     res.status(201).json(rows[0]);
-  } catch (error) { console.error('[TRANSFER CREATE]', error); res.status(500).json({ error: 'Could not create transfer.' }); }
+  } catch (error) { console.error('[TRANSFER CREATE]', error); res.status(500).json({ error: 'Could not create free shuttle.' }); }
 });
 
 router.patch('/transfers/:id', allowRoles(...transferRoles), async (req, res) => {
@@ -93,7 +112,7 @@ router.patch('/transfers/:id', allowRoles(...transferRoles), async (req, res) =>
       if (!result.affectedRows) return res.status(403).json({ error: 'This trip is not assigned to you.' });
     } else if (!editTransferRoles.includes(role)) return res.status(403).json({ error: 'Read-only access.' });
     else {
-      const fields = { reservationId:'reservation_id', propertyId:'property_id', guestName:'guest_name', guestPhone:'guest_phone', transferType:'transfer_type', pickupLocation:'pickup_location', destination:'destination', scheduledAt:'scheduled_at', passengers:'passengers', luggage:'luggage', flightInfo:'flight_info', driver:'driver', vehicle:'vehicle', notes:'notes', status:'status' };
+      const fields = { reservationId:'reservation_id', propertyId:'property_id', guestName:'guest_name', guestPhone:'guest_phone', transferType:'transfer_type', pickupLocation:'pickup_location', destination:'destination', scheduledAt:'scheduled_at', passengers:'passengers', luggage:'luggage', luggages:'luggage', cabinLuggages:'cabin_luggages', approximateArrivalTimeAirport:'approximate_arrival_time_airport', flightInfo:'flight_info', driver:'driver', vehicle:'vehicle', notes:'notes', status:'status' };
       const sets=[]; const values=[];
       Object.entries(fields).forEach(([key,column]) => { if (Object.prototype.hasOwnProperty.call(b,key)) { sets.push(`${column} = ?`); values.push(b[key] === '' ? null : b[key]); } });
       if (!sets.length) return res.status(400).json({ error: 'No supported fields supplied.' });
