@@ -265,8 +265,10 @@ async function updateHousekeepingStatus(roomId, payload = {}, actor = {}) {
         const error = new Error('Housekeeping status must be Dirty, Clean, No Show or Inspected.'); error.status = 422; throw error;
     }
     const statusDate = String(payload.statusDate || new Date().toISOString().slice(0, 10)).slice(0, 10);
-    const refill = payload.refill === undefined ? Boolean(existing?.refill) : Boolean(payload.refill);
-    const extraLinens = payload.extraLinens === undefined ? (existing?.extra_linens || '') : String(payload.extraLinens || '');
+    const existingDate = existing?.status_date ? String(existing.status_date).slice(0, 10) : '';
+    const existingIsToday = existingDate === statusDate;
+    const refill = payload.refill === undefined ? (existingIsToday ? Boolean(existing?.refill) : false) : Boolean(payload.refill);
+    const extraLinens = payload.extraLinens === undefined ? (existingIsToday ? (existing?.extra_linens || '') : '') : String(payload.extraLinens || '');
     const comments = payload.comments ?? payload.roomComments ?? existing?.comments ?? null;
 
     await db.query(
