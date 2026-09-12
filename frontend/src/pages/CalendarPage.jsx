@@ -31,7 +31,7 @@ const statusTone = (status) => {
 
 const CalendarPage = () => {
   const { user } = useContext(AuthContext);
-  const { reservations, properties, rooms: contextRooms, status, loading, refresh, connect } = useContext(CloudbedsDataContext);
+  const { reservations, properties, rooms: contextRooms, status, loading, refresh } = useContext(CloudbedsDataContext);
   const [searchParams, setSearchParams] = useSearchParams();
   const canCreate = false; // Phase 1: Cloudbeds is strictly read-only; PMS cannot create reservations.
   const [propertyId, setPropertyId] = useState(properties[0]?.id || '');
@@ -209,7 +209,7 @@ const CalendarPage = () => {
   }, [dates]);
 
   if (!status?.authorized && !status?.connected && !loading) {
-    return <div className="space-y-6"><PageHeader title="Calendar" description="Hotel-style availability and reservation calendar." /><div className="rounded-2xl border border-slate-200 bg-white p-8 text-center"><div className="text-lg font-bold text-slate-950">Connect Cloudbeds first</div><div className="mt-2 text-sm text-slate-500">The calendar uses live Cloudbeds inventory and reservations.</div><button onClick={connect} className="mt-5 rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white">Connect Cloudbeds</button></div></div>;
+    return <div className="space-y-6"><PageHeader title="Calendar" description="Read-only hotel room plan from Cloudbeds." /><div className="rounded-2xl border border-slate-200 bg-white p-8 text-center"><div className="text-lg font-bold text-slate-950">Cloudbeds connection required</div><div className="mt-2 text-sm text-slate-500">An Administrator must configure the Cloudbeds integration from Developer Settings.</div></div></div>;
   }
 
   return <div className="space-y-5">
