@@ -66,6 +66,26 @@ const GuestPortalPage = ({ forceCheckin = false }) => {
     return () => { active = false; };
   }, [token]);
 
+  useEffect(() => {
+    let active = true;
+    const sync = () => {
+      if (!active || document.visibilityState !== 'visible') return;
+      api.get(`/guest-portal/${token}`, { params: { _ts: Date.now() } })
+        .then((response) => { if (active) hydrate(response.data.data); })
+        .catch(() => {});
+    };
+    const interval = window.setInterval(sync, 10000);
+    const onVisible = () => { if (document.visibilityState === 'visible') sync(); };
+    window.addEventListener('focus', sync);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+      window.removeEventListener('focus', sync);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [token]);
+
   const firstName = useMemo(
     () => String(portal?.reservation?.guestName || 'Guest').trim().split(/\s+/)[0],
     [portal]
