@@ -1,10 +1,46 @@
 const db = require('../config/db');
 
 const SOURCE = 'cloudbeds';
+const HOUSEKEEPING_STATUSES = ['dirty', 'clean', 'no_show', 'inspected'];
+const RESERVATION_STATUSES = ['confirmed', 'checked_in', 'checked_out', 'no_show', 'cancelled'];
 let tablesReady = false;
 
 async function ensureTables() {
     if (tablesReady) return;
+
+    await db.query(`
+        CREATE TABLE IF NOT EXISTS reservation_operations (
+            source VARCHAR(32) NOT NULL,
+            external_reservation_id VARCHAR(128) NOT NULL,
+            local_status VARCHAR(32) NULL,
+            actual_arrival_time VARCHAR(16) NULL,
+            actual_departure_time VARCHAR(16) NULL,
+            guest_notes TEXT NULL,
+            special_requests_json LONGTEXT NULL,
+            updated_by VARCHAR(64) NULL,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (source, external_reservation_id)
+        )
+    `);
+    try { await db.query(`ALTER TABLE reservation_operations ADD COLUMN IF NOT EXISTS local_status VARCHAR(32) NULL AFTER external_reservation_id`); } catch (_) {}
+    try { await db.query(`ALTER TABLE reservation_operations ADD COLUMN IF NOT EXISTS updated_by VARCHAR(64) NULL AFTER special_requests_json`); } catch (_) {}
+
+    await db.query(`
+        CREATE TABLE IF NOT EXISTS room_operations (
+            source VARCHAR(32) NOT NULL,
+            room_id VARCHAR(128) NOT NULL,
+            property_id VARCHAR(128) NULL,
+            room_number VARCHAR(128) NULL,
+            housekeeping_status VARCHAR(32) NOT NULL DEFAULT 'dirty',
+            comments TEXT NULL,
+            status_date DATE NOT NULL,
+            updated_by VARCHAR(64) NULL,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (source, room_id),
+            INDEX idx_room_operations_date (status_date),
+            INDEX idx_room_operations_property (property_id)
+        )
+    `);
 
     await db.query(`
         CREATE TABLE IF NOT EXISTS guest_housekeeping_schedule (
@@ -66,54 +102,20 @@ async function ensureTables() {
     tablesReady = true;
 }
 
-function isTransferAddon(addon) {
-    const value = `${addon?.id || ''} ${addon?.name || ''}`.toLowerCase();
-    return value.includes('transfer') || value.includes('shuttle');
-}
-
-function inferDirection(addon) {
-    const value = `${addon?.id || ''} ${addon?.name || ''}`.toLowerCase();
-    if (
-        value.includes('departure') ||
-        value.includes('dropoff') ||
-        value.includes('drop-off') ||
-        value.includes('checkout') ||
-        value.includes('check-out')
-    ) {
-        return 'departure';
-    }
-    return 'arrival';
-}
-
 function roomIdFromReservation(reservation) {
-    if (Array.isArray(reservation.roomIds) && reservation.roomIds.length) {
-        return String(reservation.roomIds[0]);
-    }
+    if (Array.isArray(reservation.roomIds) && reservation.roomIds.length) return String(reservation.roomIds[0]);
     return reservation.roomId ? String(reservation.roomId) : null;
 }
-
 function roomNumberFromReservation(reservation) {
-    if (Array.isArray(reservation.roomNumbers) && reservation.roomNumbers.length) {
-        return String(reservation.roomNumbers[0]);
-    }
+    if (Array.isArray(reservation.roomNumbers) && reservation.roomNumbers.length) return String(reservation.roomNumbers[0]);
     return reservation.roomNumber ? String(reservation.roomNumber) : null;
 }
 
 async function syncLegacyReservationTimes(reservation, submitted) {
-    // The legacy Reception module reads these columns directly from reservations.
-    // Some Cloudbeds reservations may only exist in the live integration feed, so
-    // this mirror is deliberately best-effort and must not block guest check-in.
     try {
         await db.query(
-            `UPDATE reservations
-             SET actual_arrival_time = ?, actual_departure_time = ?
-             WHERE channel_reservation_id = ? AND source = ?`,
-            [
-                submitted.arrivalTime || null,
-                submitted.departureTime || null,
-                String(reservation.id),
-                SOURCE,
-            ]
+            `UPDATE reservations SET actual_arrival_time = ?, actual_departure_time = ? WHERE channel_reservation_id = ? AND source = ?`,
+            [submitted.arrivalTime || null, submitted.departureTime || null, String(reservation.id), SOURCE]
         );
     } catch (error) {
         console.warn('[OPERATIONS] Legacy reservation time mirror skipped:', error.message);
@@ -122,102 +124,59 @@ async function syncLegacyReservationTimes(reservation, submitted) {
 
 async function syncHousekeepingSchedule(portal, submitted) {
     const reservation = portal.reservation || {};
-
     await db.query(
         `INSERT INTO guest_housekeeping_schedule
-            (source, external_reservation_id, guest_portal_id, property_id, property_name,
-             room_id, room_number, guest_name, check_in_date, expected_check_in_time,
-             check_out_date, expected_check_out_time, status)
+            (source, external_reservation_id, guest_portal_id, property_id, property_name, room_id, room_number,
+             guest_name, check_in_date, expected_check_in_time, check_out_date, expected_check_out_time, status)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled')
          ON DUPLICATE KEY UPDATE
-            guest_portal_id = VALUES(guest_portal_id),
-            property_id = VALUES(property_id),
-            property_name = VALUES(property_name),
-            room_id = VALUES(room_id),
-            room_number = VALUES(room_number),
-            guest_name = VALUES(guest_name),
-            check_in_date = VALUES(check_in_date),
-            expected_check_in_time = VALUES(expected_check_in_time),
-            check_out_date = VALUES(check_out_date),
-            expected_check_out_time = VALUES(expected_check_out_time),
-            updated_at = NOW()`,
-        [
-            SOURCE,
-            String(reservation.id),
-            portal.id || null,
-            reservation.propertyId || null,
-            reservation.propertyName || null,
-            roomIdFromReservation(reservation),
-            roomNumberFromReservation(reservation),
-            reservation.guestName || null,
-            reservation.arrivalDate || null,
-            submitted.arrivalTime || null,
-            reservation.departureDate || null,
-            submitted.departureTime || null,
-        ]
+            guest_portal_id=VALUES(guest_portal_id), property_id=VALUES(property_id), property_name=VALUES(property_name),
+            room_id=VALUES(room_id), room_number=VALUES(room_number), guest_name=VALUES(guest_name),
+            check_in_date=VALUES(check_in_date), expected_check_in_time=VALUES(expected_check_in_time),
+            check_out_date=VALUES(check_out_date), expected_check_out_time=VALUES(expected_check_out_time), updated_at=NOW()`,
+        [SOURCE, String(reservation.id), portal.id || null, reservation.propertyId || null, reservation.propertyName || null,
+         roomIdFromReservation(reservation), roomNumberFromReservation(reservation), reservation.guestName || null,
+         reservation.arrivalDate || null, submitted.arrivalTime || null, reservation.departureDate || null, submitted.departureTime || null]
     );
 }
 
+function isTransferAddon(addon) {
+    const value = `${addon?.id || ''} ${addon?.name || ''}`.toLowerCase();
+    return value.includes('transfer') || value.includes('shuttle');
+}
+function inferDirection(addon) {
+    const value = `${addon?.id || ''} ${addon?.name || ''}`.toLowerCase();
+    return value.includes('departure') || value.includes('dropoff') || value.includes('drop-off') || value.includes('checkout') || value.includes('check-out')
+        ? 'departure' : 'arrival';
+}
 async function syncTransferRequests(portal, submitted, addons) {
     const reservation = portal.reservation || {};
     const transferAddons = (Array.isArray(addons) ? addons : []).filter(isTransferAddon);
-
     for (const addon of transferAddons) {
         const direction = inferDirection(addon);
         const isDeparture = direction === 'departure';
-        const scheduledDate = isDeparture ? reservation.departureDate : reservation.arrivalDate;
-        const scheduledTime = isDeparture ? submitted.departureTime : submitted.arrivalTime;
-        const pickupLocation = isDeparture
-            ? (reservation.propertyName || 'Property')
-            : 'Airport / guest pickup point';
-        const dropoffLocation = isDeparture
-            ? 'Airport / guest drop-off point'
-            : (reservation.propertyName || 'Property');
-
         await db.query(
             `INSERT INTO guest_transfer_requests
-                (source, external_reservation_id, guest_portal_id, service_key, service_name,
-                 direction, property_id, property_name, guest_name, guest_email, guest_phone,
-                 scheduled_date, scheduled_time, pickup_location, dropoff_location, flight_info,
-                 notes, status)
+                (source, external_reservation_id, guest_portal_id, service_key, service_name, direction,
+                 property_id, property_name, guest_name, guest_email, guest_phone, scheduled_date, scheduled_time,
+                 pickup_location, dropoff_location, flight_info, notes, status)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unassigned')
              ON DUPLICATE KEY UPDATE
-                guest_portal_id = VALUES(guest_portal_id),
-                service_name = VALUES(service_name),
-                property_id = VALUES(property_id),
-                property_name = VALUES(property_name),
-                guest_name = VALUES(guest_name),
-                guest_email = VALUES(guest_email),
-                guest_phone = VALUES(guest_phone),
-                scheduled_date = VALUES(scheduled_date),
-                scheduled_time = VALUES(scheduled_time),
-                pickup_location = VALUES(pickup_location),
-                dropoff_location = VALUES(dropoff_location),
-                flight_info = VALUES(flight_info),
-                notes = VALUES(notes),
-                updated_at = NOW()`,
-            [
-                SOURCE,
-                String(reservation.id),
-                portal.id || null,
-                String(addon.id || 'transfer'),
-                addon.name || 'Transfer',
-                direction,
-                reservation.propertyId || null,
-                reservation.propertyName || null,
-                reservation.guestName || null,
-                reservation.guestEmail || null,
-                submitted.guestPhone || reservation.guestPhone || null,
-                scheduledDate || null,
-                scheduledTime || null,
-                pickupLocation,
-                dropoffLocation,
-                !isDeparture ? (submitted.flightNumber || null) : null,
-                submitted.specialRequests || null,
-            ]
+                guest_portal_id=VALUES(guest_portal_id), service_name=VALUES(service_name), property_id=VALUES(property_id),
+                property_name=VALUES(property_name), guest_name=VALUES(guest_name), guest_email=VALUES(guest_email),
+                guest_phone=VALUES(guest_phone), scheduled_date=VALUES(scheduled_date), scheduled_time=VALUES(scheduled_time),
+                pickup_location=VALUES(pickup_location), dropoff_location=VALUES(dropoff_location),
+                flight_info=VALUES(flight_info), notes=VALUES(notes), updated_at=NOW()`,
+            [SOURCE, String(reservation.id), portal.id || null, String(addon.id || 'transfer'), addon.name || 'Transfer',
+             direction, reservation.propertyId || null, reservation.propertyName || null, reservation.guestName || null,
+             reservation.guestEmail || null, submitted.guestPhone || reservation.guestPhone || null,
+             isDeparture ? reservation.departureDate : reservation.arrivalDate,
+             isDeparture ? submitted.departureTime : submitted.arrivalTime,
+             isDeparture ? (reservation.propertyName || 'Property') : 'Airport',
+             isDeparture ? 'Airport' : (reservation.propertyName || 'Property'),
+             !isDeparture ? (submitted.flightNumber || null) : null, submitted.specialRequests || null]
         );
     }
-
     return transferAddons.length;
 }
 
@@ -228,118 +187,114 @@ async function syncGuestOperations(portal, submitted, addons) {
     await syncLegacyReservationTimes(portal.reservation || {}, submitted);
 }
 
+async function listReservationOperations() {
+    await ensureTables();
+    const rows = await db.query(`SELECT * FROM reservation_operations WHERE source = ? ORDER BY updated_at DESC`, [SOURCE]);
+    return rows.map((row) => ({
+        reservationId: String(row.external_reservation_id),
+        status: row.local_status,
+        actualArrivalTime: row.actual_arrival_time,
+        actualDepartureTime: row.actual_departure_time,
+        guestNotes: row.guest_notes,
+        specialRequests: (() => { try { return JSON.parse(row.special_requests_json || 'null'); } catch { return row.special_requests_json; } })(),
+        updatedAt: row.updated_at,
+    }));
+}
+
+async function updateReservationOperation(reservationId, payload = {}, actor = {}) {
+    await ensureTables();
+    const status = payload.status == null ? null : String(payload.status).toLowerCase();
+    if (status && !RESERVATION_STATUSES.includes(status)) {
+        const error = new Error('Unsupported local reservation status.'); error.status = 422; throw error;
+    }
+    const arrival = payload.actualArrivalTime ?? payload.actual_arrival_time ?? payload.arrivalTime;
+    const departure = payload.actualDepartureTime ?? payload.actual_departure_time ?? payload.departureTime;
+    const notes = payload.guestNotes ?? payload.guest_notes;
+    const special = payload.specialRequests ?? payload.special_requests;
+    await db.query(
+        `INSERT INTO reservation_operations
+          (source, external_reservation_id, local_status, actual_arrival_time, actual_departure_time, guest_notes, special_requests_json, updated_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+          local_status=COALESCE(VALUES(local_status),local_status),
+          actual_arrival_time=COALESCE(VALUES(actual_arrival_time),actual_arrival_time),
+          actual_departure_time=COALESCE(VALUES(actual_departure_time),actual_departure_time),
+          guest_notes=COALESCE(VALUES(guest_notes),guest_notes),
+          special_requests_json=COALESCE(VALUES(special_requests_json),special_requests_json),
+          updated_by=VALUES(updated_by), updated_at=NOW()`,
+        [SOURCE, String(reservationId), status, arrival ?? null, departure ?? null, notes ?? null,
+         special === undefined ? null : JSON.stringify(special), actor.userId ? String(actor.userId) : null]
+    );
+    const all = await listReservationOperations();
+    return all.find((item) => item.reservationId === String(reservationId)) || null;
+}
+
+async function listHousekeepingStatus() {
+    await ensureTables();
+    const rows = await db.query(`SELECT * FROM room_operations WHERE source = ? ORDER BY property_id, room_number, room_id`, [SOURCE]);
+    return rows.map((row) => ({
+        roomId: String(row.room_id), propertyId: row.property_id, roomNumber: row.room_number,
+        roomCondition: row.housekeeping_status, status: row.housekeeping_status,
+        comments: row.comments || '', date: row.status_date, updatedAt: row.updated_at,
+    }));
+}
+
+async function updateHousekeepingStatus(roomId, payload = {}, actor = {}) {
+    await ensureTables();
+    const status = String(payload.roomCondition || payload.status || '').toLowerCase();
+    if (!HOUSEKEEPING_STATUSES.includes(status)) {
+        const error = new Error('Housekeeping status must be Dirty, Clean, No Show or Inspected.'); error.status = 422; throw error;
+    }
+    const statusDate = String(payload.statusDate || new Date().toISOString().slice(0, 10)).slice(0, 10);
+    await db.query(
+        `INSERT INTO room_operations
+          (source, room_id, property_id, room_number, housekeeping_status, comments, status_date, updated_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+          property_id=VALUES(property_id), room_number=VALUES(room_number), housekeeping_status=VALUES(housekeeping_status),
+          comments=VALUES(comments), status_date=VALUES(status_date), updated_by=VALUES(updated_by), updated_at=NOW()`,
+        [SOURCE, String(roomId), payload.propertyId || null, payload.roomNumber || null, status,
+         payload.comments ?? payload.roomComments ?? null, statusDate, actor.userId ? String(actor.userId) : null]
+    );
+    const all = await listHousekeepingStatus();
+    return all.find((item) => item.roomId === String(roomId)) || null;
+}
+
 async function listTransfers() {
     await ensureTables();
-    const rows = await db.query(`
-        SELECT *
-        FROM guest_transfer_requests
-        WHERE status <> 'cancelled'
-        ORDER BY scheduled_date ASC, scheduled_time ASC, created_at ASC
-    `);
-
+    const rows = await db.query(`SELECT * FROM guest_transfer_requests WHERE status <> 'cancelled' ORDER BY scheduled_date ASC, scheduled_time ASC, created_at ASC`);
     return rows.map((row) => ({
-        id: String(row.id),
-        reservationId: String(row.external_reservation_id),
-        guestPortalId: row.guest_portal_id ? String(row.guest_portal_id) : null,
-        serviceKey: row.service_key,
-        serviceName: row.service_name,
-        direction: row.direction,
-        propertyId: row.property_id,
-        propertyName: row.property_name,
-        guestName: row.guest_name,
-        guestEmail: row.guest_email,
-        guestPhone: row.guest_phone,
-        scheduledDate: row.scheduled_date,
-        pickupTime: row.scheduled_time,
-        pickupLocation: row.pickup_location,
-        dropoffLocation: row.dropoff_location,
-        flightInfo: row.flight_info,
-        passengers: row.passengers,
-        luggage: row.luggage,
-        driver: row.driver,
-        vehicle: row.vehicle,
-        notes: row.notes,
-        status: row.status,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
+        id: String(row.id), reservationId: String(row.external_reservation_id), guestPortalId: row.guest_portal_id ? String(row.guest_portal_id) : null,
+        serviceKey: row.service_key, serviceName: row.service_name, direction: row.direction, propertyId: row.property_id,
+        propertyName: row.property_name, guestName: row.guest_name, guestEmail: row.guest_email, guestPhone: row.guest_phone,
+        scheduledDate: row.scheduled_date, pickupTime: row.scheduled_time, pickupLocation: row.pickup_location,
+        dropoffLocation: row.dropoff_location, flightInfo: row.flight_info, passengers: row.passengers, luggage: row.luggage,
+        driver: row.driver, vehicle: row.vehicle, notes: row.notes, status: row.status, createdAt: row.created_at, updatedAt: row.updated_at,
     }));
 }
-
 async function updateTransfer(id, payload) {
     await ensureTables();
-
-    const allowed = {
-        status: 'status',
-        driver: 'driver',
-        vehicle: 'vehicle',
-        pickupTime: 'scheduled_time',
-        pickupLocation: 'pickup_location',
-        dropoffLocation: 'dropoff_location',
-        flightInfo: 'flight_info',
-        passengers: 'passengers',
-        luggage: 'luggage',
-        notes: 'notes',
-    };
-
-    const updates = [];
-    const params = [];
-    for (const [key, column] of Object.entries(allowed)) {
-        if (payload[key] === undefined) continue;
-        updates.push(`${column} = ?`);
-        params.push(payload[key] === '' ? null : payload[key]);
-    }
-
-    if (!updates.length) {
-        const error = new Error('No transfer fields were supplied for update.');
-        error.status = 422;
-        throw error;
-    }
-
-    params.push(String(id));
-    await db.query(
-        `UPDATE guest_transfer_requests
-         SET ${updates.join(', ')}, updated_at = NOW()
-         WHERE id = ?`,
-        params
-    );
-
-    const rows = await db.query('SELECT * FROM guest_transfer_requests WHERE id = ? LIMIT 1', [String(id)]);
-    if (!rows[0]) {
-        const error = new Error('Transfer request not found.');
-        error.status = 404;
-        throw error;
-    }
-
-    return (await listTransfers()).find((item) => item.id === String(id)) || null;
+    const allowed = { status:'status', driver:'driver', vehicle:'vehicle', pickupTime:'scheduled_time', pickupLocation:'pickup_location', dropoffLocation:'dropoff_location', flightInfo:'flight_info', passengers:'passengers', luggage:'luggage', notes:'notes' };
+    const updates=[]; const params=[];
+    for (const [key,column] of Object.entries(allowed)) if (payload[key] !== undefined) { updates.push(`${column} = ?`); params.push(payload[key] === '' ? null : payload[key]); }
+    if (!updates.length) { const error=new Error('No transfer fields were supplied for update.'); error.status=422; throw error; }
+    params.push(String(id)); await db.query(`UPDATE guest_transfer_requests SET ${updates.join(', ')}, updated_at=NOW() WHERE id=?`, params);
+    const rows=await db.query('SELECT id FROM guest_transfer_requests WHERE id=? LIMIT 1',[String(id)]);
+    if (!rows[0]) { const error=new Error('Transfer request not found.'); error.status=404; throw error; }
+    return (await listTransfers()).find((item)=>item.id===String(id)) || null;
 }
-
 async function listHousekeepingSchedule() {
     await ensureTables();
-    const rows = await db.query(`
-        SELECT *
-        FROM guest_housekeeping_schedule
-        ORDER BY check_out_date ASC, expected_check_out_time ASC, created_at ASC
-    `);
-
-    return rows.map((row) => ({
-        id: String(row.id),
-        reservationId: String(row.external_reservation_id),
-        propertyId: row.property_id,
-        propertyName: row.property_name,
-        roomId: row.room_id,
-        roomNumber: row.room_number,
-        guestName: row.guest_name,
-        checkInDate: row.check_in_date,
-        checkInTime: row.expected_check_in_time,
-        checkOutDate: row.check_out_date,
-        checkOutTime: row.expected_check_out_time,
-        status: row.status,
-        updatedAt: row.updated_at,
-    }));
+    const rows = await db.query(`SELECT * FROM guest_housekeeping_schedule ORDER BY check_out_date ASC, expected_check_out_time ASC, created_at ASC`);
+    return rows.map((row)=>({id:String(row.id),reservationId:String(row.external_reservation_id),propertyId:row.property_id,propertyName:row.property_name,roomId:row.room_id,roomNumber:row.room_number,guestName:row.guest_name,checkInDate:row.check_in_date,checkInTime:row.expected_check_in_time,checkOutDate:row.check_out_date,checkOutTime:row.expected_check_out_time,status:row.status,updatedAt:row.updated_at}));
 }
 
 module.exports = {
     syncGuestOperations,
+    listReservationOperations,
+    updateReservationOperation,
+    listHousekeepingStatus,
+    updateHousekeepingStatus,
     listTransfers,
     updateTransfer,
     listHousekeepingSchedule,
