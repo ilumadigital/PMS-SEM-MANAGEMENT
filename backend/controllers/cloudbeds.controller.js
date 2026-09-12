@@ -125,12 +125,12 @@ const callback = async (req, res) => {
               <body style="margin:0;font-family:'Google Sans',Arial,sans-serif;background:#0c0c0c;color:#fff;font-style:normal">
                 <main style="max-width:760px;margin:80px auto;padding:32px;border:1px solid #2f2f2f;border-radius:20px;background:#151515">
                   <div style="font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#c9a46a">SEM PMS · Cloudbeds</div>
-                  <h1 style="margin-top:18px">${isReady ? 'Cloudbeds connected for two-way PMS operations' : 'Authorization completed, but PMS data is not ready'}</h1>
+                  <h1 style="margin-top:18px">${isReady ? 'Cloudbeds connected in read-only mode' : 'Authorization completed, but PMS data is not ready'}</h1>
                   <p style="line-height:1.7;color:#c9c4bc">Property: <strong style="color:#fff">${escapeHtml(propertyNames || 'Not discovered')}</strong></p>
                   <p style="line-height:1.7;color:#c9c4bc">Token resources: <strong style="color:#fff">${escapeHtml(tokenResourceLabel || 'None returned')}</strong></p>
                   ${
                     isReady
-                      ? `<p style="line-height:1.7;color:#c9c4bc">Reservations, guests, rooms and housekeeping are readable. SEM also requested write access for: <strong style="color:#fff">${escapeHtml(writeScopes.join(', '))}</strong>.</p>`
+                      ? `<p style="line-height:1.7;color:#c9c4bc">Reservations, guests, rooms and housekeeping are readable. Operational changes are stored only in SEM PMS; no Cloudbeds write scopes are requested.</p>`
                       : `<p style="line-height:1.7;color:#f0d6a5">Cloudbeds issued an API key, but the required PMS resources could not all be verified.</p>
                          <p style="line-height:1.7;color:#c9c4bc">Detected missing permissions: <strong style="color:#fff">${escapeHtml(missingScopes.join(', ') || 'None explicitly reported')}</strong></p>
                          <p style="line-height:1.7;color:#f0d6a5">${escapeHtml(guidance)}</p>
