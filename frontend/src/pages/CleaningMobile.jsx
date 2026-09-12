@@ -102,7 +102,7 @@ const CleaningMobile = () => {
     return {
       checkOutTime: checkout?.actualDepartureTime || checkout?.departureTime || '',
       checkInTime: arrival?.actualArrivalTime || arrival?.arrivalTime || '',
-      guestCount: Number(guestReservation?.guestCount || 1),
+      guestCount: guestReservation ? Number(guestReservation.guestCount || 1) : null,
     };
   };
 
