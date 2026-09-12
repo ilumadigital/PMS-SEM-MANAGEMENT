@@ -645,7 +645,7 @@ function mapServiceRequest(row) {
 }
 
 function mapTransfer(row) {
-    return { id: String(row.id), type: row.transfer_type, pickupLocation: row.pickup_location, destination: row.destination, scheduledAt: row.scheduled_at, passengers: Number(row.passengers || 1), luggage: Number(row.luggage || 0), flightInfo: row.flight_info || '', driver: row.driver || '', vehicle: row.vehicle || '', notes: row.notes || '', status: row.status, createdAt: row.created_at };
+    return { id: String(row.id), type: row.transfer_type, pickupLocation: row.pickup_location, destination: row.destination, scheduledAt: row.scheduled_at, approximateArrivalTimeAirport: row.approximate_arrival_time_airport || '', passengers: Number(row.passengers || 1), cabinLuggages: Number(row.cabin_luggages || 0), luggage: Number(row.luggage || 0), flightInfo: row.flight_info || '', driver: row.driver || '', vehicle: row.vehicle || '', notes: row.notes || '', status: row.status, freeShuttle: Boolean(row.free_shuttle), createdAt: row.created_at };
 }
 
 async function loadPortalRow(token) {
