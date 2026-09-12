@@ -29,6 +29,18 @@ const READ_ROLES = ['admin', 'management', 'reception', 'supervisor'];
 const WRITE_ROLES = ['admin', 'management', 'reception', 'supervisor'];
 const CREATE_ROLES = ['admin', 'management', 'reception'];
 
+const READ_ONLY_MESSAGE = 'Cloudbeds is configured as READ-ONLY. Check-in/out, housekeeping, transfers and all operational changes are stored only in SEM PMS.';
+router.use((req, res, next) => {
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(String(req.method || '').toUpperCase())) {
+        return res.status(405).json({
+            success: false,
+            error: 'CLOUDBEDS_READ_ONLY',
+            message: READ_ONLY_MESSAGE,
+        });
+    }
+    next();
+});
+
 router.get('/capabilities', protect, restrictTo('admin', 'management', 'reception', 'supervisor', 'cleaner', 'cleaning'), async (_req, res) => {
     res.json({ success: true, ...operations.getCapabilities() });
 });
