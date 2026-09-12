@@ -1,8 +1,13 @@
-import React, { useContext, useMemo, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { CloudbedsDataContext } from '../context/CloudbedsDataContext';
+import { AuthContext } from '../context/AuthContext';
+import api from '../services/api';
 import { EmptyState, MetricCard, PageHeader, StatusBadge } from '../components/PmsUi';
 
+const todayKey = () => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+
 const CleaningMobile = () => {
+  const { user } = useContext(AuthContext);
   const {
     housekeeping, rooms, properties, diagnostics, loading, refresh,
     updateHousekeeping, writeState,
@@ -12,6 +17,44 @@ const CleaningMobile = () => {
   const [comments, setComments] = useState('');
   const [flags, setFlags] = useState({ doNotDisturb: false, refusedService: false, vacantPickup: false });
   const [notice, setNotice] = useState('');
+  const role = String(user?.role || '').toLowerCase();
+  const canAssign = ['admin','manager','management','cleaneradmin'].includes(role);
+  const [assignmentDate,setAssignmentDate]=useState(todayKey());
+  const [cleaners,setCleaners]=useState([]);
+  const [assignments,setAssignments]=useState([]);
+  const [assignmentError,setAssignmentError]=useState('');
+
+  const loadAssignments = async () => {
+    if (!canAssign) return;
+    setAssignmentError('');
+    try {
+      const [staffResponse, assignmentsResponse] = await Promise.all([
+        api.get('/management/staff',{params:{role:'cleaner'}}),
+        api.get('/management/housekeeping-assignments',{params:{from:assignmentDate,to:assignmentDate}}),
+      ]);
+      setCleaners(Array.isArray(staffResponse.data)?staffResponse.data:[]);
+      setAssignments(Array.isArray(assignmentsResponse.data)?assignmentsResponse.data:[]);
+    } catch (error) { setAssignmentError(error.response?.data?.error || error.message || 'Could not load cleaner assignments.'); }
+  };
+
+  useEffect(()=>{ loadAssignments(); },[canAssign,assignmentDate]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const assignCleaner = async (item, cleanerUserId) => {
+    if (!cleanerUserId) return;
+    const { room, propertyId } = roomContext(item);
+    try {
+      await api.post('/management/housekeeping-assignments',{
+        propertyId,
+        roomId:item.roomId,
+        roomNumber:item.roomNumber || room?.roomNumber || '',
+        roomType:item.roomType || room?.roomType || '',
+        taskDate:assignmentDate,
+        cleanerUserId,
+      });
+      setNotice(`Room ${item.roomNumber || item.roomId} assigned.`);
+      await loadAssignments();
+    } catch (error) { setAssignmentError(error.response?.data?.error || error.message || 'Could not assign cleaner.'); }
+  };
 
   const rows = useMemo(() => {
     const source = housekeeping.length ? housekeeping : rooms.map((room) => ({
@@ -69,6 +112,8 @@ const CleaningMobile = () => {
 
     {missingScope && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">Cloudbeds has not granted <strong>Housekeeping READ</strong>. Re-authorize the app after enabling the scope.</div>}
     {(writeState.error || notice) && <div className={`rounded-xl border px-4 py-3 text-sm font-semibold ${writeState.error?'border-rose-200 bg-rose-50 text-rose-700':'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>{writeState.error || notice}</div>}
+    {assignmentError && <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{assignmentError}</div>}
+    {canAssign && <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"><div><div className="text-sm font-black text-slate-950">Cleaner assignments</div><div className="mt-1 text-xs text-slate-500">Choose the work date and assign each room to an active Cleaner.</div></div><input type="date" value={assignmentDate} onChange={e=>setAssignmentDate(e.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700"/></div>}
 
     <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
       <MetricCard label="Rooms" value={loading ? '…' : rows.length} helper="Visible" />
@@ -90,11 +135,12 @@ const CleaningMobile = () => {
           <div className="flex items-start justify-between gap-3"><div><div className="text-xl font-black text-slate-950">Room {item.roomNumber || room?.roomNumber || '—'}</div><div className="mt-1 text-xs text-slate-500">{item.roomType || room?.roomType || 'Room'} · {property?.name || 'Cloudbeds property'}</div></div><StatusBadge status={item.roomCondition || item.status || 'not_tracked'} /></div>
           <div className="mt-4 grid grid-cols-2 gap-2 text-xs"><div className="rounded-xl bg-slate-50 p-3"><div className="text-slate-400">Occupancy</div><div className="mt-1 font-bold text-slate-800">{item.roomOccupied?'Occupied':'Vacant'}</div></div><div className="rounded-xl bg-slate-50 p-3"><div className="text-slate-400">Front desk</div><div className="mt-1 font-bold text-slate-800">{item.frontdeskStatus || '—'}</div></div></div>
           {item.comments && <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">{item.comments}</div>}
-          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <button disabled={writeState.syncing} onClick={()=>sync(item,{roomCondition:'dirty'},`Room ${item.roomNumber || item.roomId} marked Dirty in SEM PMS.`)} className="min-h-12 rounded-xl border border-amber-200 bg-amber-50 px-2 text-sm font-black text-amber-800 disabled:opacity-40">Dirty</button>
-            <button disabled={writeState.syncing} onClick={()=>sync(item,{roomCondition:'clean'},`Room ${item.roomNumber || item.roomId} marked Clean in SEM PMS.`)} className="min-h-12 rounded-xl border border-emerald-200 bg-emerald-50 px-2 text-sm font-black text-emerald-800 disabled:opacity-40">Clean</button>
-            <button disabled={writeState.syncing} onClick={()=>sync(item,{roomCondition:'no_show'},`Room ${item.roomNumber || item.roomId} marked No Show in SEM PMS.`)} className="min-h-12 rounded-xl border border-rose-200 bg-rose-50 px-2 text-sm font-black text-rose-800 disabled:opacity-40">No Show</button><button disabled={writeState.syncing} onClick={()=>sync(item,{roomCondition:'inspected'},`Room ${item.roomNumber || item.roomId} marked Inspected in SEM PMS.`)} className="min-h-12 rounded-xl bg-slate-950 px-2 text-sm font-black text-white disabled:opacity-40">Inspected</button>
+          <div className="mt-4 grid grid-cols-3 gap-2">
+            <button disabled={writeState.syncing} onClick={()=>sync(item,{roomCondition:'dirty'},`Room ${item.roomNumber || item.roomId} marked Dirty.`)} className="min-h-12 rounded-xl border border-amber-200 bg-amber-50 px-2 text-sm font-black text-amber-800 disabled:opacity-40">Dirty</button>
+            <button disabled={writeState.syncing} onClick={()=>sync(item,{roomCondition:'clean'},`Room ${item.roomNumber || item.roomId} marked Clean.`)} className="min-h-12 rounded-xl border border-emerald-200 bg-emerald-50 px-2 text-sm font-black text-emerald-800 disabled:opacity-40">Clean</button>
+            <button disabled={writeState.syncing} onClick={()=>sync(item,{roomCondition:'inspected'},`Room ${item.roomNumber || item.roomId} marked Inspected.`)} className="min-h-12 rounded-xl bg-slate-950 px-2 text-sm font-black text-white disabled:opacity-40">Inspected</button>
           </div>
+          {canAssign && (()=>{ const assignment=assignments.find(a=>String(a.room_id)===String(item.roomId)&&String(a.task_date).slice(0,10)===assignmentDate); return <div className="mt-3 rounded-xl border border-blue-100 bg-blue-50 p-3"><div className="mb-2 text-[10px] font-black uppercase tracking-wide text-blue-700">Assigned cleaner · {assignmentDate}</div><select value={assignment?.cleaner_user_id ? String(assignment.cleaner_user_id) : ''} onChange={e=>assignCleaner(item,e.target.value)} className="w-full rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800"><option value="">Select cleaner…</option>{cleaners.map(cleaner=><option key={cleaner.id} value={cleaner.id}>{cleaner.name}</option>)}</select>{assignment&&<div className="mt-2 text-xs text-blue-800">Current: <strong>{assignment.cleaner_name}</strong> · {assignment.status}</div>}</div>; })()}
           <button onClick={()=>expanded?setSelectedRoomId(null):openDetails(item)} className="mt-3 min-h-11 w-full rounded-xl border border-slate-200 bg-white text-sm font-bold text-slate-700 hover:bg-slate-50">{expanded?'Close details':'DND · Refused · Pickup · Comments'}</button>
         </div>
         {expanded && <div className="border-t border-slate-100 bg-slate-50 p-4 sm:p-5"><div className="grid gap-2">{[
