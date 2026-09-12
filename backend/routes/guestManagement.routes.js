@@ -16,7 +16,7 @@ function safeJson(value, fallback) {
 router.get(
     '/reservations/:reservationId/journey',
     protect,
-    restrictTo('admin', 'management', 'reception', 'supervisor'),
+    restrictTo('admin', 'manager', 'management', 'reception', 'supervisor'),
     async (req, res) => {
         try {
             const rows = await db.query(
