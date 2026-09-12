@@ -84,15 +84,15 @@ const Login = () => {
 const font = '"Google Sans", "Google Sans Text", Arial, sans-serif';
 const styles = {
     page: {
-        minHeight: '100vh', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: '24px', background: 'linear-gradient(180deg, #f8faff 0%, #f2f5fb 100%)', fontFamily: font,
+        minHeight: '100dvh', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 'max(14px, env(safe-area-inset-top)) clamp(12px, 4vw, 24px) max(14px, env(safe-area-inset-bottom))', background: 'linear-gradient(180deg, #f8faff 0%, #f2f5fb 100%)', fontFamily: font,
         boxSizing: 'border-box', position: 'relative', overflow: 'hidden', color: '#0f172a',
     },
     glowOne: { position: 'absolute', width: '520px', height: '520px', borderRadius: '999px', background: 'rgba(37,99,235,.11)', filter: 'blur(80px)', top: '-260px', right: '-160px' },
     glowTwo: { position: 'absolute', width: '420px', height: '420px', borderRadius: '999px', background: 'rgba(14,165,233,.08)', filter: 'blur(90px)', bottom: '-260px', left: '-120px' },
     card: {
         width: '100%', maxWidth: '430px', background: 'rgba(255,255,255,.96)', border: '1px solid #e2e8f0',
-        borderRadius: '24px', padding: '36px', boxShadow: '0 28px 80px rgba(15,23,42,.12)',
+        borderRadius: 'clamp(20px, 5vw, 24px)', padding: 'clamp(22px, 6vw, 36px)', boxShadow: '0 28px 80px rgba(15,23,42,.12)',
         boxSizing: 'border-box', position: 'relative', backdropFilter: 'blur(18px)',
     },
     logoBox: { display: 'flex', justifyContent: 'center', marginBottom: '18px' },
@@ -107,7 +107,7 @@ const styles = {
     },
     codeInput: {
         width: '100%', padding: '14px', borderRadius: '12px', border: '1px solid #cbd5e1', background: '#fff', color: '#0f172a',
-        textAlign: 'center', fontSize: '24px', fontWeight: 600, letterSpacing: '7px', outline: 'none', boxSizing: 'border-box', fontFamily: font,
+        textAlign: 'center', fontSize: 'clamp(20px, 7vw, 24px)', fontWeight: 600, letterSpacing: 'clamp(4px, 2vw, 7px)', outline: 'none', boxSizing: 'border-box', fontFamily: font,
     },
     primaryButton: {
         width: '100%', padding: '14px', background: 'linear-gradient(180deg, #2f6fed, #2563eb)', color: '#fff',
