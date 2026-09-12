@@ -3,6 +3,7 @@ const router = express.Router();
 const operationsController = require('../controllers/operations.controller');
 const { protect, restrictTo } = require('../middleware/auth.middleware');
 
+router.get('/revision', protect, operationsController.getRealtimeRevision);
 router.get('/transfers', protect, operationsController.getTransfers);
 router.put('/transfers/:id', protect, operationsController.updateTransfer);
 router.get('/housekeeping-schedule', protect, operationsController.getHousekeepingSchedule);
