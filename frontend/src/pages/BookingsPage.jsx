@@ -63,7 +63,7 @@ const BookingsPage = () => {
 
   const selected = reservations.find((reservation) => reservation.id === selectedId) || filtered[0] || null;
   const selectedRoom = rooms.find((room) => String(room.id) === String(selected?.roomId));
-  const canEditGuest = ['admin', 'management', 'reception'].includes(String(user?.role || '').toLowerCase());
+  const canEditGuest = ['admin', 'manager', 'management', 'reception'].includes(String(user?.role || '').toLowerCase());
   const canCharge = canEditGuest;
 
   useEffect(() => {
