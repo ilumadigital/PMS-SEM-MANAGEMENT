@@ -156,8 +156,8 @@ const SettingsPage = () => {
         {authorized&&<button onClick={disconnect} className="rounded-lg border border-rose-300 bg-white px-4 py-2 text-sm font-semibold text-rose-700">Disconnect Cloudbeds</button>}
       </div></Panel>
 
-      <Panel title="Operations defaults" description="Technical defaults used across transfers, housekeeping and reports."><div className="grid gap-4 p-5 sm:grid-cols-2">
-        <Setting label="Transfer buffer (minutes)" value={ops['operations.defaultTransferBufferMinutes']} onChange={v=>setOps({...ops,'operations.defaultTransferBufferMinutes':v})} type="number"/>
+      <Panel title="Operations defaults" description="Technical defaults used across free shuttles, housekeeping and reports."><div className="grid gap-4 p-5 sm:grid-cols-2">
+        <Setting label="Free shuttle buffer (minutes)" value={ops['operations.defaultTransferBufferMinutes']} onChange={v=>setOps({...ops,'operations.defaultTransferBufferMinutes':v})} type="number"/>
         <Setting label="Housekeeping priority window (hours)" value={ops['housekeeping.priorityWindowHours']} onChange={v=>setOps({...ops,'housekeeping.priorityWindowHours':v})} type="number"/>
         <Setting label="Default report range (days)" value={ops['reports.defaultRangeDays']} onChange={v=>setOps({...ops,'reports.defaultRangeDays':v})} type="number"/>
         <label><span className="mb-1.5 block text-xs font-semibold text-slate-600">Require driver + vehicle</span><select value={ops['operations.requireDriverVehicle']} onChange={e=>setOps({...ops,'operations.requireDriverVehicle':e.target.value})} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"><option value="true">Enabled</option><option value="false">Disabled</option></select></label>
