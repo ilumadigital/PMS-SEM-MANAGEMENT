@@ -1,6 +1,7 @@
 const operationsService = require('../services/operations.service');
 const realtimeService = require('../services/realtime.service');
 const cloudbedsOperationsService = require('../services/cloudbedsOperations.service');
+const db = require('../config/db');
 
 function sendError(res, error) {
     console.error('[OPERATIONS API]', error.message);
@@ -25,6 +26,18 @@ const getHousekeepingStatus = async (_req,res) => { try { res.status(200).json({
 const updateHousekeepingStatus = async (req,res) => {
     try {
         const payload = req.body || {};
+        const role = String(req.user?.role || '').toLowerCase();
+        if (role === 'cleaner' || role === 'cleaning') {
+            const assignments = await db.query(
+                `SELECT id FROM housekeeping_assignments
+                 WHERE room_id = ? AND cleaner_user_id = ? AND task_date = CURRENT_DATE()
+                 LIMIT 1`,
+                [String(req.params.roomId), req.user.userId]
+            );
+            if (!assignments.length) {
+                return res.status(403).json({ success:false, message:'This room is not assigned to you for today.' });
+            }
+        }
         const requestedCondition = String(payload.roomCondition ?? payload.status ?? '').toLowerCase();
         let cloudbeds = null;
 
