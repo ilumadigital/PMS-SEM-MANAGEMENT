@@ -9,7 +9,7 @@ import {
 const ReceptionDash = () => {
   const navigate = useNavigate();
   const {
-    reservations, dashboard, diagnostics, loading, refresh, reauthorize, status,
+    reservations, dashboard, diagnostics, loading, refresh, status,
     updateReservation, writeState,
   } = useContext(CloudbedsDataContext);
   const [view, setView] = useState('today');
@@ -54,7 +54,7 @@ const ReceptionDash = () => {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><div className="text-sm font-black text-blue-950">Cloudbeds read-only feed</div><div className="mt-1 text-xs leading-5 text-blue-800">Reservations, properties and rooms come from Cloudbeds. Operational status changes stay inside SEM PMS and are never written back.</div></div><button onClick={()=>navigate('/calendar')} className="shrink-0 rounded-xl bg-slate-950 px-4 py-3 text-sm font-black text-white">View calendar</button></div>
     </div>
 
-    {status?.authorized && reservations.length===0 && !loading && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4"><div className="text-sm font-semibold text-amber-900">Front Desk is connected, but reservation details are unavailable.</div><div className="mt-1 text-xs text-amber-800">{reservationScopeMissing?'Cloudbeds did not grant Reservations READ.':'The current property binding returned no reservation rows.'}</div><button onClick={reauthorize} className="mt-3 rounded-lg bg-amber-700 px-3 py-2 text-xs font-semibold text-white">Disconnect & re-authorize</button></div>}
+    {status?.authorized && reservations.length===0 && !loading && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4"><div className="text-sm font-semibold text-amber-900">Front Desk is connected, but reservation details are unavailable.</div><div className="mt-1 text-xs text-amber-800">{reservationScopeMissing?'Cloudbeds did not grant Reservations READ.':'The current property binding returned no reservation rows.'}</div><div className="mt-3 text-xs font-bold text-amber-900">Ask an Administrator to re-authorize Cloudbeds from Developer Settings.</div></div>}
     {(writeState.error || notice) && <div className={`rounded-xl border px-4 py-3 text-sm font-semibold ${writeState.error?'border-rose-200 bg-rose-50 text-rose-700':'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>{writeState.error || notice}</div>}
 
     <div className="grid grid-cols-2 gap-4 xl:grid-cols-4"><MetricCard label="Arrivals" value={loading?'…':displayArrivals} helper="Today" tone="blue"/><MetricCard label="Departures" value={loading?'…':displayDepartures} helper="Today"/><MetricCard label="In house" value={loading?'…':displayInHouse} helper="Active stays" tone="green"/><MetricCard label="Missing info" value={loading?'…':missingInfo} helper="Needs review" tone={missingInfo?'amber':'green'}/></div>
