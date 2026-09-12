@@ -41,7 +41,6 @@ const DashboardPage = () => {
     status,
     loading,
     error,
-    connect,
     updateReservation,
     updateHousekeeping,
   } = useContext(CloudbedsDataContext);
@@ -225,9 +224,7 @@ const DashboardPage = () => {
               <option value="all">All properties</option>
               {properties.map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}
             </select>
-            {!status?.connected && !loading && (
-              <button onClick={connect} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white">Connect Cloudbeds</button>
-            )}
+            {!status?.connected && !loading && <div className="rounded-full border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">Cloudbeds connection requires Administrator</div>}
             {status?.connected && <div className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700">Live sync</div>}
           </>
         }
