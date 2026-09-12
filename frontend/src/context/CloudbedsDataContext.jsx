@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import api from '../services/api';
+import { AuthContext } from './AuthContext';
 
 export const CloudbedsDataContext = createContext(null);
 
@@ -250,6 +251,9 @@ const buildDerivedData = (reservations) => {
 };
 
 export const CloudbedsDataProvider = ({ children }) => {
+  const { user } = useContext(AuthContext);
+  const userRole = String(user?.role || '').toLowerCase();
+  const limitedScheduleRole = ['cleaner','cleaning','driver'].includes(userRole);
   const [reservations, setReservations] = useState([]);
   const [properties, setProperties] = useState([]);
   const [rooms, setRooms] = useState([]);
@@ -264,6 +268,11 @@ export const CloudbedsDataProvider = ({ children }) => {
   const verifiedRoomAssignmentsRef = useRef(new Map());
 
   const refresh = useCallback(async () => {
+    if (limitedScheduleRole) {
+      setReservations([]); setProperties([]); setRooms([]); setCustomers([]); setHousekeeping([]);
+      setDashboard(null); setDiagnostics(null); setStatus({ connected:false, authorized:false, limitedRole:true, dataStatus:'role_limited' });
+      setError(''); setLoading(false); return;
+    }
     try {
       setError('');
       const cacheBust = Date.now();
@@ -320,7 +329,7 @@ export const CloudbedsDataProvider = ({ children }) => {
     } catch (requestError) {
       setError(requestError.response?.data?.message || requestError.message || 'Could not load Cloudbeds data.');
     } finally { setLoading(false); }
-  }, []);
+  }, [limitedScheduleRole]);
 
   useEffect(() => {
     refresh();
