@@ -583,6 +583,12 @@ async function sendAutomaticReservationEmails(reservationId) {
     return { reservationId: String(reservationId), portalUrl: portal.portalUrl, ...results };
 }
 
+async function ensurePortalForReservation(reservationId) {
+    const reservation = await findReservationWithRetry(reservationId);
+    if (!reservation) throw Object.assign(new Error('Reservation was not found in the connected Cloudbeds property.'), { status: 404, code: 'RESERVATION_NOT_FOUND' });
+    return createOrRefreshPortal(reservation);
+}
+
 async function sendInstructions(reservationId) {
     const reservation = await findReservationWithRetry(reservationId);
     if (!reservation) throw Object.assign(new Error('Reservation was not found in the connected Cloudbeds property.'), { status: 404, code: 'RESERVATION_NOT_FOUND' });
@@ -804,6 +810,6 @@ async function updateServiceRequestStatus(requestId, status) {
 }
 
 module.exports = {
-    sendInstructions, sendAutomaticReservationEmails, getPortalByToken, saveCheckin, createServiceRequest, createTransferRequest,
+    sendInstructions, sendAutomaticReservationEmails, ensurePortalForReservation, getPortalByToken, saveCheckin, createServiceRequest, createTransferRequest,
     getReservationPortalStatus, getReservationManagement, saveStayInfo, saveCatalog, updateServiceRequestStatus,
 };
