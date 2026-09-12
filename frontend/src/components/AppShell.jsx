@@ -25,25 +25,29 @@ const Icon = ({ name, className = 'h-5 w-5' }) => {
   return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 };
 
-const A = ['admin', 'management'];
+const M = ['admin', 'manager', 'management'];
 const groups = [
   { label: 'Front office', items: [
-    { to: '/dashboard', label: 'Dashboard', icon: 'dashboard', roles: ['*'] },
-    { to: '/reception', label: 'Front Desk', icon: 'reception', roles: [...A, 'reception'] },
-    { to: '/calendar', label: 'Calendar', icon: 'calendar', roles: [...A, 'reception', 'supervisor'] },
-    { to: '/bookings', label: 'Reservations', icon: 'bookings', roles: [...A, 'reception', 'supervisor'] },
-    { to: '/guest-management', label: 'Guest Portal', icon: 'portal', roles: [...A, 'reception', 'supervisor'] },
-    { to: '/customers', label: 'Guests', icon: 'guests', roles: [...A, 'reception'] },
-    { to: '/rooms', label: 'Rooms', icon: 'rooms', roles: [...A, 'reception', 'supervisor', 'cleaner', 'cleaning'] },
+    { to: '/dashboard', label: 'Dashboard', icon: 'dashboard', roles: [...M, 'reception', 'supervisor'] },
+    { to: '/reception', label: 'Front Desk', icon: 'reception', roles: [...M, 'reception'] },
+    { to: '/calendar', label: 'Calendar', icon: 'calendar', roles: [...M, 'reception', 'supervisor'] },
+    { to: '/bookings', label: 'Reservations', icon: 'bookings', roles: [...M, 'reception', 'supervisor'] },
+    { to: '/guest-management', label: 'Guest Portal', icon: 'portal', roles: [...M, 'reception', 'supervisor'] },
+    { to: '/customers', label: 'Guests', icon: 'guests', roles: [...M, 'reception'] },
+    { to: '/rooms', label: 'Rooms', icon: 'rooms', roles: [...M, 'reception', 'supervisor', 'cleaneradmin'] },
   ]},
-  { label: 'Operations', items: [
-    { to: '/cleaning-mobile', label: 'Housekeeping', icon: 'housekeeping', roles: [...A, 'supervisor', 'cleaner', 'cleaning'] },
-    { to: '/shuttle', label: 'Transfers', icon: 'shuttle', roles: [...A, 'reception', 'supervisor', 'driver', 'dispatcher'] },
-    { to: '/supervisor', label: 'Supervisor', icon: 'reception', roles: [...A, 'supervisor'] },
+  { label: 'Housekeeping', items: [
+    { to: '/cleaning-mobile', label: 'Housekeeping Admin', icon: 'housekeeping', roles: [...M, 'supervisor', 'cleaneradmin'] },
+    { to: '/my-cleaning', label: 'My Cleaning Schedule', icon: 'calendar', roles: ['cleaner', 'cleaning'] },
+  ]},
+  { label: 'Mobility', items: [
+    { to: '/shuttle', label: 'Transfers', icon: 'shuttle', roles: [...M, 'reception', 'supervisor', 'driversadmin', 'dispatcher'] },
+    { to: '/my-shuttles', label: 'My Shuttle Schedule', icon: 'calendar', roles: ['driver'] },
   ]},
   { label: 'Management', items: [
-    { to: '/statistics', label: 'Reports', icon: 'insights', roles: [...A, 'supervisor'] },
-    { to: '/settings', label: 'Settings', icon: 'settings', roles: A },
+    { to: '/supervisor', label: 'Supervisor', icon: 'reception', roles: [...M, 'supervisor'] },
+    { to: '/statistics', label: 'Reports', icon: 'insights', roles: [...M, 'supervisor'] },
+    { to: '/settings', label: 'Developer Settings', icon: 'settings', roles: ['admin'] },
   ]},
 ];
 const titles = Object.fromEntries(groups.flatMap((group) => group.items.map((item) => [item.to, item.label])));
