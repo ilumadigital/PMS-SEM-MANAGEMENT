@@ -29,7 +29,7 @@ const READ_ROLES = ['admin', 'management', 'reception', 'supervisor'];
 const WRITE_ROLES = ['admin', 'management', 'reception', 'supervisor'];
 const CREATE_ROLES = ['admin', 'management', 'reception'];
 
-const READ_ONLY_MESSAGE = 'Cloudbeds is configured as READ-ONLY. Check-in/out, housekeeping, transfers and all operational changes are stored only in SEM PMS.';
+const READ_ONLY_MESSAGE = 'Direct Cloudbeds writes are disabled. Reservations, check-in/out, transfers and other operations stay in SEM PMS; housekeeping room condition is synced only through the controlled SEM PMS housekeeping flow.';
 router.use((req, res, next) => {
     if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(String(req.method || '').toUpperCase())) {
         return res.status(405).json({
