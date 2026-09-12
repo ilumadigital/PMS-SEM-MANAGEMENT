@@ -11,7 +11,7 @@ router.get('/housekeeping-schedule', protect, operationsController.getHousekeepi
 router.get('/reservations', protect, restrictTo('admin','manager','management','reception','supervisor'), operationsController.getReservationOperations);
 router.put('/reservations/:reservationId', protect, restrictTo('admin','management','reception','supervisor'), operationsController.updateReservationOperation);
 
-router.get('/housekeeping', protect, restrictTo('admin','manager','management','reception','supervisor','cleaneradmin','cleaner','cleaning'), operationsController.getHousekeepingStatus);
+router.get('/housekeeping', protect, restrictTo('admin','manager','management','reception','supervisor','cleaneradmin'), operationsController.getHousekeepingStatus);
 router.put('/housekeeping/:roomId', protect, restrictTo('admin','management','reception','supervisor','cleaner','cleaning'), operationsController.updateHousekeepingStatus);
 
 module.exports = router;
