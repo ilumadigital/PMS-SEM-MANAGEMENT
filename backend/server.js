@@ -3,6 +3,7 @@ const cors = require('cors');
 require('dotenv').config();
 const { pool } = require('./config/db');
 const authRoutes = require('./routes/auth.routes');
+const realtimeService = require('./services/realtime.service');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -23,6 +24,19 @@ const managementRoutes = require('./routes/management.routes');
 
 app.use(cors());
 app.use(express.json());
+app.use('/api', (req, res, next) => {
+    const method = String(req.method || 'GET').toUpperCase();
+    const isMutation = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
+    if (isMutation) {
+        res.on('finish', () => {
+            if (res.statusCode < 400) {
+                realtimeService.bumpRevision(`${method} ${req.originalUrl || req.url}`)
+                    .catch((error) => console.error('[PMS REALTIME REVISION]', error.message));
+            }
+        });
+    }
+    next();
+});
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/reception', receptionRoutes);
