@@ -17,11 +17,23 @@ import ReceptionDash from './pages/ReceptionDash';
 import SupervisorPanel from './pages/SupervisorPanel';
 import CleaningMobile from './pages/CleaningMobile';
 import ShuttlePage from './pages/ShuttlePage';
+import CleanerSchedulePage from './pages/CleanerSchedulePage';
+import DriverSchedulePage from './pages/DriverSchedulePage';
 
 const role = (user) => String(user?.role || '').toLowerCase();
 const allowed = (user, roles) => roles.includes(role(user));
 const Gate = ({ user, roles, children }) => allowed(user, roles) ? children : <Navigate to="/dashboard" replace />;
-const ALL_STAFF = ['admin','management','reception','supervisor','cleaner','cleaning','driver','dispatcher'];
+const ALL_STAFF = ['admin','manager','management','reception','supervisor','cleaneradmin','cleaner','cleaning','driversadmin','driver','dispatcher'];
+const COMPANY_MANAGERS = ['admin','manager','management'];
+
+const RoleHome = ({ user }) => {
+  const r=role(user);
+  if (['cleaner','cleaning'].includes(r)) return <CleanerSchedulePage />;
+  if (r==='cleaneradmin') return <CleaningMobile />;
+  if (r==='driver') return <DriverSchedulePage />;
+  if (['driversadmin','dispatcher'].includes(r)) return <ShuttlePage />;
+  return <DashboardPage />;
+};
 
 const ProtectedRoutes = () => {
   const { user } = useContext(AuthContext);
@@ -29,18 +41,20 @@ const ProtectedRoutes = () => {
   return <CloudbedsDataProvider><Routes>
     <Route path="/" element={<AppShell />}>
       <Route index element={<Navigate to="/dashboard" replace />} />
-      <Route path="dashboard" element={<Gate user={user} roles={ALL_STAFF}><DashboardPage /></Gate>} />
-      <Route path="reception" element={<Gate user={user} roles={['admin','management','reception']}><ReceptionDash /></Gate>} />
-      <Route path="calendar" element={<Gate user={user} roles={['admin','management','reception','supervisor']}><CalendarPage /></Gate>} />
+      <Route path="dashboard" element={<Gate user={user} roles={ALL_STAFF}><RoleHome user={user} /></Gate>} />
+      <Route path="reception" element={<Gate user={user} roles={[...COMPANY_MANAGERS,'reception']}><ReceptionDash /></Gate>} />
+      <Route path="calendar" element={<Gate user={user} roles={[...COMPANY_MANAGERS,'reception','supervisor']}><CalendarPage /></Gate>} />
       <Route path="bookings" element={<Gate user={user} roles={['admin','management','reception','supervisor']}><BookingsPage /></Gate>} />
       <Route path="guest-management" element={<Gate user={user} roles={['admin','management','reception','supervisor']}><GuestPortalAdminPage /></Gate>} />
       <Route path="customers" element={<Gate user={user} roles={['admin','management','reception']}><CustomersPage /></Gate>} />
-      <Route path="rooms" element={<Gate user={user} roles={['admin','management','reception','supervisor','cleaner','cleaning']}><RoomsPage /></Gate>} />
-      <Route path="statistics" element={<Gate user={user} roles={['admin','management','supervisor']}><StatisticsPage /></Gate>} />
-      <Route path="settings" element={<Gate user={user} roles={['admin','management']}><SettingsPage /></Gate>} />
+      <Route path="rooms" element={<Gate user={user} roles={[...COMPANY_MANAGERS,'reception','supervisor','cleaneradmin']}><RoomsPage /></Gate>} />
+      <Route path="statistics" element={<Gate user={user} roles={[...COMPANY_MANAGERS,'supervisor']}><StatisticsPage /></Gate>} />
+      <Route path="settings" element={<Gate user={user} roles={['admin']}><SettingsPage /></Gate>} />
       <Route path="supervisor" element={<Gate user={user} roles={['admin','management','supervisor']}><SupervisorPanel /></Gate>} />
-      <Route path="cleaning-mobile" element={<Gate user={user} roles={['admin','management','supervisor','cleaner','cleaning']}><CleaningMobile /></Gate>} />
-      <Route path="shuttle" element={<Gate user={user} roles={['admin','management','reception','supervisor','driver','dispatcher']}><ShuttlePage /></Gate>} />
+      <Route path="my-cleaning" element={<Gate user={user} roles={['cleaner','cleaning']}><CleanerSchedulePage /></Gate>} />
+      <Route path="my-shuttles" element={<Gate user={user} roles={['driver']}><DriverSchedulePage /></Gate>} />
+      <Route path="cleaning-mobile" element={<Gate user={user} roles={[...COMPANY_MANAGERS,'supervisor','cleaneradmin']}><CleaningMobile /></Gate>} />
+      <Route path="shuttle" element={<Gate user={user} roles={[...COMPANY_MANAGERS,'reception','supervisor','driversadmin','dispatcher']}><ShuttlePage /></Gate>} />
     </Route>
     <Route path="*" element={<Navigate to="/dashboard" replace />} />
   </Routes></CloudbedsDataProvider>;
