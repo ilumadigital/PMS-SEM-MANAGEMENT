@@ -28,10 +28,10 @@ const COMPANY_MANAGERS = ['admin','manager','management'];
 
 const RoleHome = ({ user }) => {
   const r=role(user);
-  if (['cleaner','cleaning'].includes(r)) return <CleanerSchedulePage />;
-  if (r==='cleaneradmin') return <CleaningMobile />;
-  if (r==='driver') return <DriverSchedulePage />;
-  if (['driversadmin','dispatcher'].includes(r)) return <ShuttlePage />;
+  if (['cleaner','cleaning'].includes(r)) return <Navigate to="/my-cleaning" replace />;
+  if (r==='cleaneradmin') return <Navigate to="/cleaning-mobile" replace />;
+  if (r==='driver') return <Navigate to="/my-shuttles" replace />;
+  if (['driversadmin','dispatcher'].includes(r)) return <Navigate to="/shuttle" replace />;
   return <DashboardPage />;
 };
 
