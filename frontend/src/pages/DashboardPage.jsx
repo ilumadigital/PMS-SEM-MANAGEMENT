@@ -47,8 +47,8 @@ const DashboardPage = () => {
   } = useContext(CloudbedsDataContext);
 
   const role = String(user?.role || '').toLowerCase();
-  const canEditFrontDesk = ['admin', 'management', 'reception', 'supervisor'].includes(role);
-  const canEditHousekeeping = ['admin', 'management', 'reception', 'supervisor', 'cleaner', 'cleaning'].includes(role);
+  const canEditFrontDesk = ['admin', 'manager', 'management', 'reception', 'supervisor'].includes(role);
+  const canEditHousekeeping = ['admin', 'manager', 'management', 'reception', 'supervisor', 'cleaneradmin'].includes(role);
 
   const [propertyFilter, setPropertyFilter] = useState('all');
   const [frontDrafts, setFrontDrafts] = useState({});
