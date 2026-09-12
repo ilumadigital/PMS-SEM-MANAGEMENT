@@ -17,8 +17,19 @@ const ROLE_CATALOG = [
 ];
 
 const ALLOWED_ROLES = new Set(ROLE_CATALOG.map((role) => role.key));
+let roleStorageReady = false;
+
+async function ensureUserRoleStorage() {
+  if (roleStorageReady) return;
+  await db.query(`ALTER TABLE users MODIFY COLUMN role VARCHAR(40) NOT NULL`);
+  roleStorageReady = true;
+}
 
 router.use(protect, restrictTo('admin'));
+router.use(async (_req, res, next) => {
+  try { await ensureUserRoleStorage(); next(); }
+  catch (error) { console.error('[ADMIN ROLE STORAGE]', error); res.status(500).json({ success:false, message:'Could not prepare user role storage.' }); }
+});
 
 router.get('/roles', (_req, res) => {
   res.json({ success: true, data: ROLE_CATALOG });
