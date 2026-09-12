@@ -37,6 +37,15 @@ const connect = async (req, res) => {
     }
 };
 
+const connectLink = async (_req, res) => {
+    try {
+        const authorization = await cloudbedsOperationsService.createAuthorizationUrl();
+        return res.status(200).json({ success: true, url: authorization.url });
+    } catch (error) {
+        return sendError(res, error, 500);
+    }
+};
+
 const reauthorize = async (req, res) => {
     try {
         await cloudbedsService.disconnectIntegration();
@@ -209,6 +218,7 @@ const updateReservationOperations = async (req, res) => {
 
 module.exports = {
     connect,
+    connectLink,
     reauthorize,
     disconnect,
     callback,
