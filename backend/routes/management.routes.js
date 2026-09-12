@@ -55,6 +55,7 @@ async function ensureTables() {
   await db.query(`CREATE TABLE IF NOT EXISTS housekeeping_assignments (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     property_id VARCHAR(128) NOT NULL,
+    property_name VARCHAR(255) NULL,
     room_id VARCHAR(128) NOT NULL,
     room_number VARCHAR(128) NULL,
     room_type VARCHAR(255) NULL,
@@ -69,6 +70,7 @@ async function ensureTables() {
     INDEX idx_housekeeping_cleaner_day (cleaner_user_id, task_date),
     INDEX idx_housekeeping_property_day (property_id, task_date)
   )`);
+  try { await db.query(`ALTER TABLE housekeeping_assignments ADD COLUMN IF NOT EXISTS property_name VARCHAR(255) NULL AFTER property_id`); } catch (_) {}
   await db.query(`CREATE TABLE IF NOT EXISTS app_settings (
     setting_key VARCHAR(120) PRIMARY KEY, setting_value TEXT NULL, updated_by INT NULL,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -139,12 +141,12 @@ router.post('/housekeeping-assignments', allowRoles(...housekeepingAdminRoles), 
     if (!cleanerRows.length) return res.status(422).json({ error: 'Selected user is not an active cleaner.' });
     await db.query(
       `INSERT INTO housekeeping_assignments
-       (property_id,room_id,room_number,room_type,task_date,cleaner_user_id,status,notes,created_by)
-       VALUES (?,?,?,?,?,?,?, ?,?)
+       (property_id,property_name,room_id,room_number,room_type,task_date,cleaner_user_id,status,notes,created_by)
+       VALUES (?,?,?,?,?,?,?,?,?,?)
        ON DUPLICATE KEY UPDATE cleaner_user_id=VALUES(cleaner_user_id), room_number=VALUES(room_number),
-         room_type=VALUES(room_type), property_id=VALUES(property_id), status='assigned', notes=VALUES(notes),
+         room_type=VALUES(room_type), property_id=VALUES(property_id), property_name=VALUES(property_name), status='assigned', notes=VALUES(notes),
          created_by=VALUES(created_by), updated_at=NOW()`,
-      [String(b.propertyId),String(b.roomId),b.roomNumber||null,b.roomType||null,String(b.taskDate).slice(0,10),
+      [String(b.propertyId),b.propertyName||null,String(b.roomId),b.roomNumber||null,b.roomType||null,String(b.taskDate).slice(0,10),
        b.cleanerUserId,b.status||'assigned',b.notes||null,req.user.userId]
     );
     const rows=await db.query(
