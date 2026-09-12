@@ -130,7 +130,7 @@ const AppShell = () => {
       {mobileOpen && (
         <div className="fixed inset-0 z-50 xl:hidden">
           <button className="absolute inset-0 bg-slate-950/55 backdrop-blur-[2px]" onClick={() => setMobileOpen(false)} aria-label="Close menu" />
-          <aside className="pms-mobile-drawer relative h-full w-[min(84vw,320px)] shadow-2xl">{sidebar}</aside>
+          <aside className="pms-mobile-drawer relative h-full w-[84vw] max-w-[320px] shadow-2xl">{sidebar}</aside>
         </div>
       )}
 
