@@ -47,7 +47,7 @@ const ProtectedRoutes = () => {
       <Route path="bookings" element={<Gate user={user} roles={[...COMPANY_MANAGERS,'reception','supervisor']}><BookingsPage /></Gate>} />
       <Route path="guest-management" element={<Gate user={user} roles={['admin','management','reception','supervisor']}><GuestPortalAdminPage /></Gate>} />
       <Route path="customers" element={<Gate user={user} roles={[...COMPANY_MANAGERS,'reception']}><CustomersPage /></Gate>} />
-      <Route path="rooms" element={<Gate user={user} roles={[...COMPANY_MANAGERS,'reception','supervisor','cleaneradmin']}><RoomsPage /></Gate>} />
+      <Route path="rooms" element={<Gate user={user} roles={[...COMPANY_MANAGERS,'reception','supervisor']}><RoomsPage /></Gate>} />
       <Route path="statistics" element={<Gate user={user} roles={[...COMPANY_MANAGERS,'supervisor']}><StatisticsPage /></Gate>} />
       <Route path="settings" element={<Gate user={user} roles={['admin']}><SettingsPage /></Gate>} />
       <Route path="supervisor" element={<Gate user={user} roles={[...COMPANY_MANAGERS,'supervisor']}><SupervisorPanel /></Gate>} />
