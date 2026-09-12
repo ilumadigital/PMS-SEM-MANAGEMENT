@@ -1,6 +1,7 @@
 const db = require('../config/db');
 const cloudbedsOperations = require('../services/cloudbedsOperations.service');
 const guestPortalService = require('../services/guestPortal.service');
+const operationsService = require('../services/operations.service');
 
 const cloudbedsStatus = (value) => {
     const status = String(value || '').toLowerCase();
@@ -50,6 +51,23 @@ const handleCloudbeds = async (payload, res) => {
     if (payload?.event) {
         const reservationId = cloudbedsReservationId(payload, eventMeta.externalId);
         scheduleGuestJourney(reservationId, payload.event);
+
+        const eventName = String(payload.event || '').toLowerCase();
+        if (eventName.includes('housekeeping/room_condition_changed')) {
+            const roomId = payload.roomId || payload.roomID;
+            const propertyId = payload.propertyId || payload.propertyID;
+            const condition = String(payload.condition || '').toLowerCase();
+            if (roomId && ['dirty', 'clean', 'inspected'].includes(condition)) {
+                await operationsService.updateHousekeepingStatus(
+                    String(roomId),
+                    {
+                        propertyId: propertyId ? String(propertyId) : null,
+                        roomCondition: condition,
+                    },
+                    { userId: 'cloudbeds-webhook', role: 'system' }
+                );
+            }
+        }
 
         return res.status(200).json({
             success: true,
