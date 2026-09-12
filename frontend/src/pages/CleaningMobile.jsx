@@ -74,6 +74,9 @@ const CleaningMobile = () => {
   const dirty = housekeeping.filter((item) => item.roomCondition === 'dirty').length;
   const clean = housekeeping.filter((item) => item.roomCondition === 'clean').length;
   const occupied = housekeeping.filter((item) => item.roomOccupied).length;
+  const assignmentInProgress = assignments.filter((item) => item.status === 'in_progress').length;
+  const assignmentCompleted = assignments.filter((item) => item.status === 'completed').length;
+  const assignmentWaiting = assignments.filter((item) => item.status === 'assigned').length;
   const missingScope = (diagnostics?.missingScopes || []).includes('read:housekeeping');
 
   const roomContext = (item) => {
@@ -138,7 +141,20 @@ const CleaningMobile = () => {
     {missingScope && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">Cloudbeds has not granted <strong>Housekeeping READ</strong>. Re-authorize the app after enabling the scope.</div>}
     {(writeState.error || notice) && <div className={`rounded-xl border px-4 py-3 text-sm font-semibold ${writeState.error?'border-rose-200 bg-rose-50 text-rose-700':'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>{writeState.error || notice}</div>}
     {assignmentError && <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{assignmentError}</div>}
-    {canAssign && <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"><div><div className="text-sm font-black text-slate-950">Cleaner assignments</div><div className="mt-1 text-xs text-slate-500">Choose the work date and assign each room to an active Cleaner.</div></div><input type="date" value={assignmentDate} onChange={e=>setAssignmentDate(e.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700"/></div>}
+    {canAssign && <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="text-sm font-black text-slate-950">Cleaner assignments</div>
+          <div className="mt-1 text-xs text-slate-500">Assign rooms and watch each Cleaner move from Assigned → In progress → Completed in real time.</div>
+        </div>
+        <input type="date" value={assignmentDate} onChange={e=>setAssignmentDate(e.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700"/>
+      </div>
+      <div className="grid grid-cols-3 gap-px bg-slate-100">
+        <div className="bg-white p-4"><div className="text-[10px] font-black uppercase tracking-wide text-slate-400">Waiting</div><div className="mt-1 text-2xl font-black text-amber-600">{assignmentWaiting}</div></div>
+        <div className="bg-blue-50/60 p-4"><div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wide text-blue-600"><span className="h-2 w-2 animate-pulse rounded-full bg-blue-500"/>Cleaning now</div><div className="mt-1 text-2xl font-black text-blue-700">{assignmentInProgress}</div></div>
+        <div className="bg-emerald-50/60 p-4"><div className="text-[10px] font-black uppercase tracking-wide text-emerald-600">Completed</div><div className="mt-1 text-2xl font-black text-emerald-700">{assignmentCompleted}</div></div>
+      </div>
+    </div>}
 
     <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
       <MetricCard label="Rooms" value={loading ? '…' : rows.length} helper="Visible" />
@@ -177,7 +193,14 @@ const CleaningMobile = () => {
             <button disabled={writeState.syncing} onClick={()=>sync(item,{roomCondition:'clean'},`Room ${item.roomNumber || item.roomId} marked Clean.`)} className="min-h-12 rounded-xl border border-emerald-200 bg-emerald-50 px-2 text-sm font-black text-emerald-800 disabled:opacity-40">Clean</button>
             <button disabled={writeState.syncing} onClick={()=>sync(item,{roomCondition:'inspected'},`Room ${item.roomNumber || item.roomId} marked Inspected.`)} className="min-h-12 rounded-xl bg-slate-950 px-2 text-sm font-black text-white disabled:opacity-40">Inspected</button>
           </div>
-          {canAssign && (()=>{ const assignment=assignments.find(a=>String(a.room_id)===String(item.roomId)&&String(a.task_date).slice(0,10)===assignmentDate); return <div className="mt-3 rounded-xl border border-blue-100 bg-blue-50 p-3"><div className="mb-2 text-[10px] font-black uppercase tracking-wide text-blue-700">Assigned cleaner · {assignmentDate}</div><select value={assignment?.cleaner_user_id ? String(assignment.cleaner_user_id) : ''} onChange={e=>assignCleaner(item,e.target.value)} className="w-full rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800"><option value="">Select cleaner…</option>{cleaners.map(cleaner=><option key={cleaner.id} value={cleaner.id}>{cleaner.name}</option>)}</select>{assignment&&<div className="mt-2 text-xs text-blue-800">Current: <strong>{assignment.cleaner_name}</strong> · {assignment.status}</div>}</div>; })()}
+          {canAssign && (()=>{ const assignment=assignments.find(a=>String(a.room_id)===String(item.roomId)&&String(a.task_date).slice(0,10)===assignmentDate); const live=assignment?.status==='in_progress'; const done=assignment?.status==='completed'; return <div className={`mt-3 rounded-xl border p-3 transition ${live?'border-blue-300 bg-blue-50 shadow-[0_8px_24px_rgba(37,99,235,0.10)]':done?'border-emerald-200 bg-emerald-50':'border-slate-200 bg-slate-50'}`}>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <div className="text-[10px] font-black uppercase tracking-wide text-slate-500">Cleaner assignment · {assignmentDate}</div>
+              {assignment&&<div className="flex items-center gap-2">{live&&<span className="h-2.5 w-2.5 animate-pulse rounded-full bg-blue-500"/>}<StatusBadge status={assignment.status}/></div>}
+            </div>
+            <select value={assignment?.cleaner_user_id ? String(assignment.cleaner_user_id) : ''} onChange={e=>assignCleaner(item,e.target.value)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800"><option value="">Select cleaner…</option>{cleaners.map(cleaner=><option key={cleaner.id} value={cleaner.id}>{cleaner.name}</option>)}</select>
+            {assignment&&<div className="mt-3 flex items-center justify-between rounded-lg bg-white/80 px-3 py-2 text-xs"><span className="font-semibold text-slate-700">{assignment.cleaner_name}</span><span className={`font-black ${live?'text-blue-700':done?'text-emerald-700':'text-amber-700'}`}>{live?'Cleaning now':done?'Room completed':'Waiting to start'}</span></div>}
+          </div>; })()}
           <button onClick={()=>expanded?setSelectedRoomId(null):openDetails(item)} className="mt-3 min-h-11 w-full rounded-xl border border-slate-200 bg-white text-sm font-bold text-slate-700 hover:bg-slate-50">{expanded?'Close details':'DND · Refused · Pickup · Comments'}</button>
         </div>
         {expanded && <div className="border-t border-slate-100 bg-slate-50 p-4 sm:p-5"><div className="grid gap-2">{[
