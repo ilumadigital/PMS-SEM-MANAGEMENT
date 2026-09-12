@@ -53,9 +53,9 @@ export const StatusBadge = ({ status }) => {
     classes = 'bg-emerald-50 text-emerald-700 border-emerald-200';
   } else if (normalized === 'on_the_way') {
     classes = 'bg-violet-50 text-violet-700 border-violet-200';
-  } else if (['scheduled', 'in_house', 'checked_in', 'occupied'].some((key) => normalized.includes(key))) {
+  } else if (['scheduled', 'in_progress', 'in_house', 'checked_in', 'occupied'].some((key) => normalized.includes(key))) {
     classes = 'bg-blue-50 text-blue-700 border-blue-200';
-  } else if (['unassigned', 'pending', 'review', 'warning', 'missing'].some((key) => normalized.includes(key))) {
+  } else if (['assigned', 'unassigned', 'pending', 'review', 'warning', 'missing'].some((key) => normalized.includes(key))) {
     classes = 'bg-amber-50 text-amber-800 border-amber-200';
   } else if (['cancelled', 'canceled', 'error', 'failed'].some((key) => normalized.includes(key))) {
     classes = 'bg-rose-50 text-rose-700 border-rose-200';
