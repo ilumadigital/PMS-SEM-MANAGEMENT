@@ -12,7 +12,7 @@ const inputClass = 'w-full rounded-xl border border-slate-300 bg-white px-3.5 py
 const BookingsPage = () => {
   const navigate = useNavigate();
   const {
-    reservations, properties, diagnostics, loading, status, error, refresh, connect, reauthorize,
+    reservations, properties, diagnostics, loading, status, error, refresh,
   } = useContext(CloudbedsDataContext);
 
   const [search,setSearch]=useState('');
@@ -64,7 +64,7 @@ const BookingsPage = () => {
       description="Read-only Cloudbeds reservation feed. New reservations, dates, room assignment and guest profile changes are managed in Cloudbeds; SEM PMS keeps only local operational fields."
       actions={<div className="flex flex-wrap gap-2">
         <button onClick={()=>navigate('/calendar')} className="rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50">Open read-only calendar</button>
-        <button onClick={status?.connected?refresh:status?.authorized?reauthorize:connect} className="rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">{status?.connected?'Refresh':status?.authorized?'Re-authorize':'Connect Cloudbeds'}</button>
+        {status?.connected?<button onClick={refresh} className="rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">Refresh</button>:<span className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-xs font-bold text-amber-700">Administrator connection required</span>}
       </div>}
     />
 
