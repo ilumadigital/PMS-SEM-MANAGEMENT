@@ -4,8 +4,8 @@ import { CloudbedsDataContext } from '../context/CloudbedsDataContext';
 import api from '../services/api';
 import { EmptyState, MetricCard, PageHeader, Panel, StatusBadge, TableShell, Td, Th } from '../components/PmsUi';
 
-const editRoles = ['admin', 'management', 'reception', 'dispatcher'];
-const initialForm = { reservationId:'', approximateArrivalTimeAirport:'', cabinLuggages:0, luggages:0, passengers:1, flightInfo:'', driver:'', vehicle:'', notes:'' };
+const editRoles = ['admin', 'manager', 'management', 'reception', 'driversadmin', 'dispatcher'];
+const initialForm = { reservationId:'', approximateArrivalTimeAirport:'', cabinLuggages:0, luggages:0, passengers:1, flightInfo:'', driver:'', driverUserId:'', vehicle:'', notes:'' };
 
 const ShuttlePage = () => {
   const { user } = useContext(AuthContext);
@@ -20,6 +20,7 @@ const ShuttlePage = () => {
   const [showForm,setShowForm]=useState(false);
   const [form,setForm]=useState(initialForm);
   const [saving,setSaving]=useState(false);
+  const [drivers,setDrivers]=useState([]);
 
   const load=async()=>{
     setLoading(true); setError('');
@@ -28,6 +29,7 @@ const ShuttlePage = () => {
     finally{ setLoading(false); }
   };
   useEffect(()=>{ load(); },[]);
+  useEffect(()=>{ if(canEdit) api.get('/management/staff',{params:{role:'driver'}}).then(({data})=>setDrivers(Array.isArray(data)?data:[])).catch(()=>setDrivers([])); },[canEdit]);
 
   const activeReservations=useMemo(()=>reservations
     .filter(r=>!['cancelled','checked_out'].includes(String(r.status||'')))
@@ -66,6 +68,7 @@ const ShuttlePage = () => {
         pickupLocation:'Airport',
         destination:property?.name || selected.property?.name || 'Property',
         driver:form.driver,
+        driverUserId:form.driverUserId || null,
         vehicle:form.vehicle,
         notes:form.notes,
       });
@@ -82,7 +85,7 @@ const ShuttlePage = () => {
   };
 
   return <div className="space-y-6">
-    <PageHeader title="Transfers" description="Every reservation is eligible for one free airport shuttle. Transfer data is stored locally in SEM PMS; Cloudbeds remains read-only." actions={<div className="flex gap-2"><button onClick={load} className="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Refresh</button>{canEdit&&<button onClick={()=>setShowForm(v=>!v)} className="rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-blue-700">{showForm?'Close':'Add free shuttle'}</button>}</div>} />
+    <PageHeader title="Transfers" description="Drivers Admin assigns each shuttle to a Driver. Pickup is always the airport and drop-off is the reservation property." actions={<div className="flex gap-2"><button onClick={load} className="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Refresh</button>{canEdit&&<button onClick={()=>setShowForm(v=>!v)} className="rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-blue-700">{showForm?'Close':'Add free shuttle'}</button>}</div>} />
 
     {error&&<div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
     {notice&&<div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">{notice}</div>}
@@ -101,7 +104,7 @@ const ShuttlePage = () => {
       <Field label="Cabin luggages" type="number" min="0" value={form.cabinLuggages} onChange={v=>setForm({...form,cabinLuggages:v})}/>
       <Field label="Luggages" type="number" min="0" value={form.luggages} onChange={v=>setForm({...form,luggages:v})}/>
       <Field label="Flight info" value={form.flightInfo} onChange={v=>setForm({...form,flightInfo:v})}/>
-      <Field label="Driver" value={form.driver} onChange={v=>setForm({...form,driver:v})}/>
+      <label><span className="mb-1.5 block text-xs font-semibold text-slate-600">Driver</span><select value={form.driverUserId} onChange={e=>{const driver=drivers.find(d=>String(d.id)===String(e.target.value));setForm({...form,driverUserId:e.target.value,driver:driver?.name||''});}} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"><option value="">Unassigned</option>{drivers.map(driver=><option key={driver.id} value={driver.id}>{driver.name}</option>)}</select></label>
       <Field label="Vehicle" value={form.vehicle} onChange={v=>setForm({...form,vehicle:v})}/>
       <label className="md:col-span-2 xl:col-span-4"><span className="mb-1.5 block text-xs font-semibold text-slate-600">Notes</span><textarea value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})} className="min-h-20 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"/></label>
       {selected&&<div className="md:col-span-2 xl:col-span-4 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-900"><strong>{selected.guestName}</strong> · Arrival {selected.arrivalDate} · {selected.property?.name || properties.find(p=>String(p.id)===String(selected.propertyId))?.name || 'Property'} · Reservation #{selected.id}</div>}
@@ -109,7 +112,7 @@ const ShuttlePage = () => {
     </form></Panel>}
 
     <Panel title="Free shuttle board" description="Reservation-linked shuttle requests. The PMS prevents a second active free shuttle for the same reservation." action={<select value={filter} onChange={e=>setFilter(e.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"><option value="all">All statuses</option><option value="unassigned">Unassigned</option><option value="scheduled">Scheduled</option><option value="on_the_way">On the way</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select>}>
-      {loading?<div className="p-8 text-sm text-slate-500">Loading transfers…</div>:filtered.length===0?<EmptyState title="No free shuttles found" description="Add a free shuttle from an eligible reservation."/>:<TableShell><thead><tr><Th>Airport arrival</Th><Th>Guest / reservation</Th><Th>Baggage</Th><Th>Flight</Th><Th>Driver / vehicle</Th><Th>Status</Th><Th>Action</Th></tr></thead><tbody className="divide-y divide-slate-100">{filtered.map(r=><tr key={r.id} className="hover:bg-slate-50/70"><Td><div className="font-semibold text-slate-900">{formatDateTime(r.scheduled_at)}</div><div className="text-xs text-slate-500">Approx. {r.approximate_arrival_time_airport || '—'}</div></Td><Td><div className="font-semibold text-slate-900">{r.guest_name}</div><div className="text-xs text-slate-500">Reservation #{r.reservation_id || '—'} · {r.passengers} guest(s)</div></Td><Td><div>{r.cabin_luggages || 0} cabin</div><div className="text-xs text-slate-500">{r.luggage || 0} luggage</div></Td><Td>{r.flight_info||'—'}</Td><Td><div>{r.driver||'Unassigned'}</div><div className="text-xs text-slate-500">{r.vehicle||'No vehicle'}</div></Td><Td><StatusBadge status={r.status}/></Td><Td><StatusControl row={r} role={role} canEdit={canEdit} onUpdate={update}/></Td></tr>)}</tbody></TableShell>}
+      {loading?<div className="p-8 text-sm text-slate-500">Loading transfers…</div>:filtered.length===0?<EmptyState title="No free shuttles found" description="Add a free shuttle from an eligible reservation."/>:<TableShell><thead><tr><Th>Airport arrival</Th><Th>Guest / reservation</Th><Th>Baggage</Th><Th>Flight</Th><Th>Driver / vehicle</Th><Th>Status</Th><Th>Action</Th></tr></thead><tbody className="divide-y divide-slate-100">{filtered.map(r=><tr key={r.id} className="hover:bg-slate-50/70"><Td><div className="font-semibold text-slate-900">{formatDateTime(r.scheduled_at)}</div><div className="text-xs text-slate-500">Approx. {r.approximate_arrival_time_airport || '—'}</div></Td><Td><div className="font-semibold text-slate-900">{r.guest_name}</div><div className="text-xs text-slate-500">Reservation #{r.reservation_id || '—'} · {r.passengers} guest(s)</div></Td><Td><div>{r.cabin_luggages || 0} cabin</div><div className="text-xs text-slate-500">{r.luggage || 0} luggage</div></Td><Td>{r.flight_info||'—'}</Td><Td><div className="space-y-2">{canEdit?<select value={r.driver_user_id?String(r.driver_user_id):''} onChange={e=>{const driver=drivers.find(d=>String(d.id)===String(e.target.value));update(r.id,{driverUserId:e.target.value||null,driver:driver?.name||''});}} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold"><option value="">Unassigned</option>{drivers.map(driver=><option key={driver.id} value={driver.id}>{driver.name}</option>)}</select>:<div>{r.driver||'Unassigned'}</div>}<div className="text-xs text-slate-500">{r.vehicle||'No vehicle'}</div></div></Td><Td><StatusBadge status={r.status}/></Td><Td><StatusControl row={r} role={role} canEdit={canEdit} onUpdate={update}/></Td></tr>)}</tbody></TableShell>}
     </Panel>
   </div>;
 };
