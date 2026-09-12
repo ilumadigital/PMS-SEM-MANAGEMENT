@@ -1435,6 +1435,23 @@ function normalizeReservation(reservation) {
         ...asArray(reservation.assignedRooms),
     ];
 
+    const roomGuestCounts = {};
+    for (const room of roomCollection) {
+        const roomId = String(pick(room, ['roomID', 'roomId', 'id'], '') || '');
+        if (!roomId) continue;
+        const adults = Number(pick(room, ['adults', 'adultCount', 'numberOfAdults'], 0) || 0);
+        const children = Number(pick(room, ['children', 'childCount', 'numberOfChildren'], 0) || 0);
+        const explicit = Number(pick(room, ['guests', 'guestCount', 'numberOfGuests'], 0) || 0);
+        const count = adults + children || explicit;
+        if (count > 0) roomGuestCounts[roomId] = count;
+    }
+
+    const reservationAdults = Number(pick(reservation, ['adults', 'adultCount', 'numberOfAdults'], 0) || 0);
+    const reservationChildren = Number(pick(reservation, ['children', 'childCount', 'numberOfChildren'], 0) || 0);
+    const explicitGuestCount = Number(pick(reservation, ['guestCount', 'numberOfGuests', 'totalGuests'], 0) || 0);
+    const roomGuestTotal = Object.values(roomGuestCounts).reduce((sum, value) => sum + Number(value || 0), 0);
+    const guestCount = reservationAdults + reservationChildren || explicitGuestCount || roomGuestTotal || guestCollection.length || 1;
+
     const roomNumbers = uniqueStrings([
         pick(reservation, ['roomName', 'roomNumber'], ''),
         ...roomCollection.map((room) => pick(room, ['roomName', 'roomNumber', 'name'], '')),
@@ -1504,6 +1521,8 @@ function normalizeReservation(reservation) {
         guestName,
         guestEmail,
         guestPhone,
+        guestCount,
+        roomGuestCounts,
         propertyId: String(property.id),
         roomId,
         roomIds,
@@ -1640,6 +1659,8 @@ function reservationsFromGuestRecords(guests, rooms, properties) {
                 guestName: guest.name || 'Unknown Guest',
                 guestEmail: guest.email || '',
                 guestPhone: guest.phone || '',
+                guestCount: 1,
+                roomGuestCounts: guest.roomId ? { [String(guest.roomId)]: 1 } : {},
                 propertyId: resolvedPropertyId,
                 roomId: guest.roomId || `cloudbeds-unassigned-${reservationId}`,
                 roomIds: guest.roomId ? [guest.roomId] : [],
