@@ -1,5 +1,6 @@
 const operationsService = require('../services/operations.service');
 const realtimeService = require('../services/realtime.service');
+const cloudbedsOperationsService = require('../services/cloudbedsOperations.service');
 
 function sendError(res, error) {
     console.error('[OPERATIONS API]', error.message);
@@ -23,8 +24,34 @@ const updateReservationOperation = async (req,res) => {
 const getHousekeepingStatus = async (_req,res) => { try { res.status(200).json({success:true,data:await operationsService.listHousekeepingStatus()}); } catch(error){ return sendError(res,error); } };
 const updateHousekeepingStatus = async (req,res) => {
     try {
-        const data=await operationsService.updateHousekeepingStatus(req.params.roomId,req.body||{},actor(req));
-        return res.status(200).json({success:true,message:'Housekeeping status saved locally in SEM PMS.',data});
+        const payload = req.body || {};
+        const requestedCondition = String(payload.roomCondition ?? payload.status ?? '').toLowerCase();
+        let cloudbeds = null;
+
+        // Housekeeping room condition is the only operational field that is intentionally
+        // written back to Cloudbeds. This keeps Cloudbeds' room picker / front desk view
+        // aligned with the cleaning team, while refill and extra linens remain SEM-only.
+        if (['dirty', 'clean', 'inspected'].includes(requestedCondition)) {
+            cloudbeds = await cloudbedsOperationsService.updateHousekeeping(
+                req.params.roomId,
+                {
+                    propertyId: payload.propertyId,
+                    roomCondition: requestedCondition,
+                },
+                actor(req)
+            );
+        }
+
+        const data = await operationsService.updateHousekeepingStatus(req.params.roomId, payload, actor(req));
+        return res.status(200).json({
+            success:true,
+            message: cloudbeds
+                ? 'Housekeeping room condition synced to Cloudbeds and saved in SEM PMS.'
+                : 'Housekeeping details saved locally in SEM PMS.',
+            data,
+            cloudbedsSynced: Boolean(cloudbeds),
+            cloudbeds,
+        });
     } catch(error){ return sendError(res,error); }
 };
 
