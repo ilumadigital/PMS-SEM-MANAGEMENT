@@ -65,6 +65,8 @@ async function ensureTables() {
     cleaner_user_id INT NOT NULL,
     status VARCHAR(32) NOT NULL DEFAULT 'assigned',
     notes TEXT NULL,
+    started_at DATETIME NULL,
+    completed_at DATETIME NULL,
     created_by INT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -73,6 +75,8 @@ async function ensureTables() {
     INDEX idx_housekeeping_property_day (property_id, task_date)
   )`);
   try { await db.query(`ALTER TABLE housekeeping_assignments ADD COLUMN IF NOT EXISTS property_name VARCHAR(255) NULL AFTER property_id`); } catch (_) {}
+  try { await db.query(`ALTER TABLE housekeeping_assignments ADD COLUMN IF NOT EXISTS started_at DATETIME NULL AFTER notes`); } catch (_) {}
+  try { await db.query(`ALTER TABLE housekeeping_assignments ADD COLUMN IF NOT EXISTS completed_at DATETIME NULL AFTER started_at`); } catch (_) {}
   await db.query(`CREATE TABLE IF NOT EXISTS app_settings (
     setting_key VARCHAR(120) PRIMARY KEY, setting_value TEXT NULL, updated_by INT NULL,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -176,6 +180,16 @@ router.patch('/housekeeping-assignments/:id', allowRoles(...housekeepingReadRole
       const status=String(b.status);
       if (!['assigned','in_progress','completed'].includes(status)) return res.status(422).json({ error:'Invalid assignment status.' });
       fields.push('status=?'); values.push(status);
+      if (status === 'in_progress') {
+        fields.push('started_at=COALESCE(started_at,NOW())');
+        fields.push('completed_at=NULL');
+      } else if (status === 'completed') {
+        fields.push('completed_at=NOW()');
+        fields.push('started_at=COALESCE(started_at,NOW())');
+      } else if (status === 'assigned') {
+        fields.push('started_at=NULL');
+        fields.push('completed_at=NULL');
+      }
     }
     if (!cleanerLimited && b.cleanerUserId !== undefined) { fields.push('cleaner_user_id=?'); values.push(b.cleanerUserId); }
     if (!cleanerLimited && b.taskDate !== undefined) { fields.push('task_date=?'); values.push(String(b.taskDate).slice(0,10)); }
@@ -294,11 +308,26 @@ router.delete('/transfers/:id', allowRoles(...managerRoles), async (req, res) =>
 
 router.get('/supervisor', allowRoles('admin','manager','management','supervisor'), async (_req, res) => {
   try {
-    let cleaning=[];
-    try { cleaning = await db.query(`SELECT ct.*, rm.internal_name, rm.room_type, r.check_in_date, r.check_out_date, r.special_requests FROM cleaning_tasks ct LEFT JOIN rooms rm ON ct.room_id=rm.id LEFT JOIN reservations r ON ct.reservation_id=r.id ORDER BY FIELD(ct.priority,'high','medium','normal','low'), r.check_in_date ASC`); }
-    catch (error) { if (error.code !== 'ER_NO_SUCH_TABLE') throw error; }
+    const cleaning = await db.query(
+      `SELECT ha.*,
+              u.first_name cleaner_first_name,
+              u.last_name cleaner_last_name,
+              u.email cleaner_email
+       FROM housekeeping_assignments ha
+       LEFT JOIN users u ON u.id = ha.cleaner_user_id
+       WHERE ha.task_date BETWEEN DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY) AND DATE_ADD(CURRENT_DATE(), INTERVAL 7 DAY)
+       ORDER BY
+         CASE ha.status WHEN 'in_progress' THEN 0 WHEN 'assigned' THEN 1 WHEN 'completed' THEN 2 ELSE 3 END,
+         ha.task_date ASC,
+         ha.property_name ASC,
+         ha.room_number ASC`
+    );
+    const cleaningTasks = cleaning.map((row) => ({
+      ...row,
+      cleaner_name: `${row.cleaner_first_name || ''} ${row.cleaner_last_name || ''}`.trim() || row.cleaner_email || 'Cleaner',
+    }));
     const transfers = await db.query(`SELECT * FROM transfers WHERE status NOT IN ('completed','cancelled') ORDER BY scheduled_at ASC`);
-    res.json({ cleaningTasks: cleaning, transfers });
+    res.json({ cleaningTasks, transfers });
   } catch (error) { console.error('[SUPERVISOR]', error); res.status(500).json({ error: 'Could not load supervisor operations.' }); }
 });
 
