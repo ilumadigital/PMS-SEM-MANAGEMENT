@@ -34,7 +34,7 @@ const groups = [
     { to: '/bookings', label: 'Reservations', icon: 'bookings', roles: [...M, 'reception', 'supervisor'] },
     { to: '/guest-management', label: 'Guest Portal', icon: 'portal', roles: [...M, 'reception', 'supervisor'] },
     { to: '/customers', label: 'Guests', icon: 'guests', roles: [...M, 'reception'] },
-    { to: '/rooms', label: 'Rooms', icon: 'rooms', roles: [...M, 'reception', 'supervisor', 'cleaneradmin'] },
+    { to: '/rooms', label: 'Rooms', icon: 'rooms', roles: [...M, 'reception', 'supervisor'] },
   ]},
   { label: 'Housekeeping', items: [
     { to: '/cleaning-mobile', label: 'Housekeeping Admin', icon: 'housekeeping', roles: [...M, 'supervisor', 'cleaneradmin'] },
