@@ -65,7 +65,7 @@ const CleaningMobile = () => {
   };
 
   return <div className="space-y-5 pb-10">
-    <PageHeader title="Housekeeping" description="Dirty, Clean, No Show and Inspected are managed locally in SEM PMS. Checkout rooms and in-house rooms after the first night become Dirty automatically for the day." actions={<button onClick={refresh} className="rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-blue-700">Refresh</button>} />
+    <PageHeader title="Housekeeping" description="Dirty, Clean and Inspected are managed in SEM PMS and synced to Cloudbeds housekeeping so room readiness matches in both systems. Refill, linens and other SEM-only details stay local." actions={<button onClick={refresh} className="rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-blue-700">Refresh</button>} />
 
     {missingScope && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">Cloudbeds has not granted <strong>Housekeeping READ</strong>. Re-authorize the app after enabling the scope.</div>}
     {(writeState.error || notice) && <div className={`rounded-xl border px-4 py-3 text-sm font-semibold ${writeState.error?'border-rose-200 bg-rose-50 text-rose-700':'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>{writeState.error || notice}</div>}
