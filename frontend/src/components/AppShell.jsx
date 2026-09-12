@@ -161,7 +161,7 @@ const AppShell = () => {
         </main>
 
         <nav className="pms-mobile-bottom-nav fixed inset-x-0 bottom-0 z-40 border-t border-slate-200/90 bg-white/95 px-2 pt-2 shadow-[0_-12px_30px_rgba(15,23,42,0.08)] backdrop-blur-xl xl:hidden" aria-label="Quick navigation">
-          <div className="mx-auto grid max-w-2xl grid-cols-5 gap-1">
+          <div className="mx-auto grid max-w-2xl gap-1" style={{ gridTemplateColumns: `repeat(${Math.max(2, mobileItems.length + 1)}, minmax(0, 1fr))` }}>
             {mobileItems.map((item) => (
               <NavLink
                 key={item.to}
