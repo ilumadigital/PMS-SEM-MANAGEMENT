@@ -381,7 +381,7 @@ const ShuttlePage = () => {
           </tbody>
         </TableShell>
       ) : (
-        <div className="p-4 sm:p-5">
+        <div className="pms-calendar-scroll p-4 sm:p-5">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div className="text-lg font-black text-slate-950">{monthLabel(calendarMonth)}</div>
             <div className="flex gap-2">
@@ -390,7 +390,7 @@ const ShuttlePage = () => {
               <button onClick={() => setCalendarMonth(addMonths(calendarMonth, 1))} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-700">Month ›</button>
             </div>
           </div>
-          <div className="grid grid-cols-7 overflow-hidden rounded-xl border border-slate-200 bg-slate-200">
+          <div className="pms-calendar-grid grid grid-cols-7 overflow-hidden rounded-xl border border-slate-200 bg-slate-200">
             {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map((day) => <div key={day} className="bg-slate-50 px-2 py-2 text-center text-[10px] font-black uppercase tracking-wide text-slate-500">{day}</div>)}
             {days.map((day) => {
               const items = filtered.filter((row) => scheduledDate(row.scheduled_at) === day);
