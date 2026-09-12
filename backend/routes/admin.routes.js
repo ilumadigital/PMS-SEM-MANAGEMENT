@@ -22,6 +22,9 @@ let roleStorageReady = false;
 async function ensureUserRoleStorage() {
   if (roleStorageReady) return;
   await db.query(`ALTER TABLE users MODIFY COLUMN role VARCHAR(40) NOT NULL`);
+  await db.query(`UPDATE users SET role='manager' WHERE role='management'`);
+  await db.query(`UPDATE users SET role='cleaner' WHERE role='cleaning'`);
+  await db.query(`UPDATE users SET role='driversadmin' WHERE role='dispatcher'`);
   roleStorageReady = true;
 }
 
