@@ -12,6 +12,10 @@
   "background_color": "#f5f7fb",
   "theme_color": "#0b1220",
   "categories": ["business", "productivity"],
+  "prefer_related_applications": false,
+  "launch_handler": {
+    "client_mode": "navigate-existing"
+  },
   "icons": [
     {
       "src": "/pwa-icon.svg",
