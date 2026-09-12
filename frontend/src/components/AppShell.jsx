@@ -69,6 +69,7 @@ const AppShell = () => {
     .map((group) => ({ ...group, items: group.items.filter((item) => item.roles.includes('*') || item.roles.includes(userRole)) }))
     .filter((group) => group.items.length);
 
+  const roleLimited = ['cleaner','cleaning','driver'].includes(userRole);
   const ready = cloudbeds.status?.connected && cloudbeds.status?.dataStatus === 'ready';
   const authorized = cloudbeds.status?.authorized || cloudbeds.status?.connected;
 
@@ -137,17 +138,17 @@ const AppShell = () => {
           <button onClick={() => setMobileOpen(true)} className="mr-3 rounded-xl border border-slate-200 bg-white p-2.5 text-slate-600 shadow-sm lg:hidden"><Icon name="menu" /></button>
           <div className="min-w-0">
             <div className="truncate text-[16px] font-semibold tracking-[-0.01em] text-slate-950">{titles[location.pathname] || 'SEM PMS'}</div>
-            <div className="mt-0.5 hidden text-xs font-normal text-slate-500 sm:block">{ready ? 'Live data · automatic refresh enabled' : authorized ? 'Cloudbeds authorized · validation in progress' : 'Cloudbeds connection required'}</div>
+            <div className="mt-0.5 hidden text-xs font-normal text-slate-500 sm:block">{roleLimited ? 'Assigned schedule access only' : ready ? 'Live data · automatic refresh enabled' : authorized ? 'Cloudbeds authorized · validation in progress' : 'Cloudbeds connection required'}</div>
           </div>
 
           <div className="ml-auto flex items-center gap-2 sm:gap-3">
-            <div className={`hidden items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium sm:flex ${cloudbeds.error ? 'border-rose-200 bg-rose-50 text-rose-700' : ready ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : authorized ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-slate-200 bg-slate-50 text-slate-600'}`}>
-              <span className={`h-2 w-2 rounded-full ${cloudbeds.error ? 'bg-rose-500' : ready ? 'bg-emerald-500' : authorized ? 'bg-amber-500' : 'bg-slate-400'}`} />
-              {cloudbeds.error ? 'Sync issue' : ready ? 'Cloudbeds synced' : authorized ? 'Connected' : 'Not connected'}
+            <div className={`hidden items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium sm:flex ${roleLimited ? 'border-slate-200 bg-slate-50 text-slate-600' : cloudbeds.error ? 'border-rose-200 bg-rose-50 text-rose-700' : ready ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : authorized ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-slate-200 bg-slate-50 text-slate-600'}`}>
+              <span className={`h-2 w-2 rounded-full ${roleLimited ? 'bg-blue-500' : cloudbeds.error ? 'bg-rose-500' : ready ? 'bg-emerald-500' : authorized ? 'bg-amber-500' : 'bg-slate-400'}`} />
+              {roleLimited ? 'Schedule only' : cloudbeds.error ? 'Sync issue' : ready ? 'Cloudbeds synced' : authorized ? 'Connected' : 'Not connected'}
             </div>
-            <button onClick={cloudbeds.refresh} className="rounded-xl border border-slate-200 bg-white p-2.5 text-slate-600 shadow-sm transition hover:border-slate-300 hover:bg-slate-50" title="Refresh PMS data">
+            {!roleLimited && <button onClick={cloudbeds.refresh} className="rounded-xl border border-slate-200 bg-white p-2.5 text-slate-600 shadow-sm transition hover:border-slate-300 hover:bg-slate-50" title="Refresh PMS data">
               <Icon name="refresh" className={`h-[18px] w-[18px] ${cloudbeds.loading ? 'animate-spin' : ''}`} />
-            </button>
+            </button>}
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-950 text-xs font-semibold text-white shadow-sm">{initials(displayName)}</div>
           </div>
         </header>
