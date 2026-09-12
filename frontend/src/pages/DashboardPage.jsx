@@ -79,7 +79,7 @@ const DashboardPage = () => {
       .sort((a, b) => {
         const byDate = String(a.arrivalDate || '').localeCompare(String(b.arrivalDate || ''));
         if (byDate) return byDate;
-        return String(a.arrivalTime || '99:99').localeCompare(String(b.arrivalTime || '99:99'));
+        return String(a.actualArrivalTime || '99:99').localeCompare(String(b.actualArrivalTime || '99:99'));
       }),
     [scopedReservations, today, tomorrow]
   );
@@ -118,8 +118,8 @@ const DashboardPage = () => {
       room,
       propertyName: propertyName(room.propertyId),
       housekeeping: hk,
-      checkOutTime: checkout?.departureTime || (inHouse?.departureDate === today ? inHouse?.departureTime : '') || '',
-      checkInTime: incoming?.arrivalTime || '',
+      checkOutTime: checkout?.actualDepartureTime || (inHouse?.departureDate === today ? inHouse?.actualDepartureTime : '') || '',
+      checkInTime: incoming?.actualArrivalTime || '',
       guestCount: guestCountForRoom(guestReservation, room.id),
       movement: checkinToday ? 'Arrival today' : checkinTomorrow ? 'Arrival tomorrow' : checkout ? 'Checkout today' : inHouse ? 'In house' : 'No movement',
     };
@@ -274,8 +274,8 @@ const DashboardPage = () => {
             <tbody className="divide-y divide-slate-100">
               {frontDeskRows.map((reservation) => {
                 const isTomorrow = reservation.arrivalDate === tomorrow;
-                const arrivalValue = draftValue(frontDrafts, reservation.id, 'arrivalTime', reservation.arrivalTime || '');
-                const departureValue = draftValue(frontDrafts, reservation.id, 'departureTime', reservation.departureTime || '');
+                const arrivalValue = draftValue(frontDrafts, reservation.id, 'arrivalTime', reservation.actualArrivalTime || '');
+                const departureValue = draftValue(frontDrafts, reservation.id, 'departureTime', reservation.actualDepartureTime || '');
                 const onlineValue = draftValue(frontDrafts, reservation.id, 'onlineCheckin', Boolean(reservation.onlineCheckin));
                 const notesValue = draftValue(frontDrafts, reservation.id, 'notes', reservation.guestNotes || '');
                 return (
@@ -299,7 +299,7 @@ const DashboardPage = () => {
                         disabled={!canEditFrontDesk}
                         onChange={(event) => setFrontDraft(reservation.id, 'arrivalTime', event.target.value)}
                         onBlur={(event) => {
-                          if (event.target.value !== String(reservation.arrivalTime || '')) saveFrontDesk(reservation, 'arrivalTime', event.target.value);
+                          if (event.target.value !== String(reservation.actualArrivalTime || '')) saveFrontDesk(reservation, 'arrivalTime', event.target.value);
                         }}
                         className={inputClass}
                       />
@@ -312,7 +312,7 @@ const DashboardPage = () => {
                         disabled={!canEditFrontDesk}
                         onChange={(event) => setFrontDraft(reservation.id, 'departureTime', event.target.value)}
                         onBlur={(event) => {
-                          if (event.target.value !== String(reservation.departureTime || '')) saveFrontDesk(reservation, 'departureTime', event.target.value);
+                          if (event.target.value !== String(reservation.actualDepartureTime || '')) saveFrontDesk(reservation, 'departureTime', event.target.value);
                         }}
                         className={inputClass}
                       />
