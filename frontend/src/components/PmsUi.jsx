@@ -67,10 +67,10 @@ export const StatusBadge = ({ status }) => {
 export const PageHeader = ({ title, description, actions }) => (
   <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
     <div className="min-w-0">
-      <h1 className="text-[26px] font-semibold tracking-[-0.025em] text-slate-950 sm:text-[28px]">{title}</h1>
-      {description ? <p className="mt-1.5 max-w-3xl text-sm leading-6 text-slate-500">{description}</p> : null}
+      <h1 className="text-[23px] font-semibold tracking-[-0.025em] text-slate-950 sm:text-[28px]">{title}</h1>
+      {description ? <p className="mt-1.5 max-w-3xl text-[13px] leading-5 text-slate-500 sm:text-sm sm:leading-6">{description}</p> : null}
     </div>
-    {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+    {actions ? <div className="pms-page-actions flex w-full flex-wrap items-center gap-2 lg:w-auto lg:justify-end">{actions}</div> : null}
   </div>
 );
 
@@ -84,18 +84,18 @@ export const MetricCard = ({ label, value, helper, tone = 'default' }) => {
   };
 
   return (
-    <div className={`rounded-[20px] border p-5 shadow-[0_8px_28px_rgba(15,23,42,0.05)] ${toneClasses[tone] || toneClasses.default}`}>
-      <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">{label}</div>
-      <div className="mt-2 text-[30px] font-semibold tracking-[-0.035em] text-slate-950">{value}</div>
+    <div className={`rounded-2xl border p-4 shadow-[0_8px_28px_rgba(15,23,42,0.05)] sm:rounded-[20px] sm:p-5 ${toneClasses[tone] || toneClasses.default}`}>
+      <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500 sm:text-[11px]">{label}</div>
+      <div className="mt-2 text-[26px] font-semibold tracking-[-0.035em] text-slate-950 sm:text-[30px]">{value}</div>
       {helper ? <div className="mt-2 text-xs leading-5 text-slate-500">{helper}</div> : null}
     </div>
   );
 };
 
 export const Panel = ({ title, description, action, children, className = '' }) => (
-  <section className={`overflow-hidden rounded-[20px] border border-slate-200/80 bg-white shadow-[0_10px_34px_rgba(15,23,42,0.05)] ${className}`}>
+  <section className={`overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_10px_34px_rgba(15,23,42,0.05)] sm:rounded-[20px] ${className}`}>
     {(title || description || action) && (
-      <div className="flex flex-col gap-3 border-b border-slate-100 px-5 py-4.5 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 border-b border-slate-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
         <div className="min-w-0">
           {title ? <h2 className="text-[15px] font-semibold text-slate-950">{title}</h2> : null}
           {description ? <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p> : null}
@@ -140,16 +140,16 @@ export const EmptyState = ({ title, description }) => (
   </div>
 );
 
-export const TableShell = ({ children }) => (
-  <div className="overflow-x-auto">
-    <table className="min-w-full text-left text-sm">{children}</table>
+export const TableShell = ({ children, minWidth = 720 }) => (
+  <div className="pms-table-shell overflow-x-auto overscroll-x-contain">
+    <table className="min-w-full text-left text-sm" style={{ minWidth }}>{children}</table>
   </div>
 );
 
 export const Th = ({ children }) => (
-  <th className="whitespace-nowrap border-b border-slate-200 bg-slate-50/80 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.07em] text-slate-500">{children}</th>
+  <th className="whitespace-nowrap border-b border-slate-200 bg-slate-50/80 px-3 py-3 text-[10px] font-semibold uppercase tracking-[0.07em] text-slate-500 sm:px-4 sm:text-[11px]">{children}</th>
 );
 
 export const Td = ({ children, className = '' }) => (
-  <td className={`border-b border-slate-100 px-4 py-3.5 align-middle text-slate-700 ${className}`}>{children}</td>
+  <td className={`border-b border-slate-100 px-3 py-3 align-middle text-slate-700 sm:px-4 sm:py-3.5 ${className}`}>{children}</td>
 );
