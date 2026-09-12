@@ -33,7 +33,7 @@ const CalendarPage = () => {
   const { user } = useContext(AuthContext);
   const { reservations, properties, rooms: contextRooms, status, loading, refresh, connect } = useContext(CloudbedsDataContext);
   const [searchParams, setSearchParams] = useSearchParams();
-  const canCreate = ['admin', 'management', 'reception'].includes(String(user?.role || '').toLowerCase());
+  const canCreate = false; // Phase 1: Cloudbeds is strictly read-only; PMS cannot create reservations.
   const [propertyId, setPropertyId] = useState(properties[0]?.id || '');
   const [anchorDate, setAnchorDate] = useState(todayKey());
   const [daysVisible, setDaysVisible] = useState(21);
@@ -215,7 +215,7 @@ const CalendarPage = () => {
   return <div className="space-y-5">
     <PageHeader
       title="Calendar"
-      description="Live hotel room plan. Click an empty date to create a reservation directly in Cloudbeds."
+      description="Read-only hotel room plan from Cloudbeds. Reservations cannot be created or changed from SEM PMS in this phase."
       actions={<div className="flex flex-wrap gap-2">
         <button onClick={()=>{setAnchorDate(todayKey()); scrollRef.current?.scrollTo({ left: 0, behavior: 'smooth' });}} className="rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50">Today</button>
         <button onClick={loadCalendar} disabled={calendarLoading} className="rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50">{calendarLoading ? 'Loading…' : 'Refresh'}</button>
@@ -283,7 +283,7 @@ const CalendarPage = () => {
                       type="button"
                       onClick={()=>!reservation && !block && canCreate && openNew(room, date)}
                       disabled={Boolean(reservation || block || !canCreate)}
-                      title={reservation ? `${reservation.guestName} · ${reservation.arrivalDate} → ${reservation.departureDate}` : block ? (block.roomBlockReason || block.reason || 'Room blocked') : canCreate ? 'Create reservation' : 'Available'}
+                      title={reservation ? `${reservation.guestName} · ${reservation.arrivalDate} → ${reservation.departureDate}` : block ? (block.roomBlockReason || block.reason || 'Room blocked') : 'Available · read only'}
                       className={`relative h-[58px] w-[92px] shrink-0 border-r border-slate-100 text-left transition ${isToday?'bg-blue-50/40':''} ${!reservation&&!block&&canCreate?'hover:bg-blue-50 cursor-pointer':'cursor-default'}`}
                     >
                       {reservation && <div className={`absolute inset-y-2 left-0 right-0 flex items-center overflow-hidden border-y px-2 text-[10px] font-bold ${statusTone(reservation.status)} ${isStart?'ml-1 rounded-l-lg border-l':''} ${isLast?'mr-1 rounded-r-lg border-r':''}`}><span className="truncate">{isStart ? reservation.guestName : '•'}</span></div>}
