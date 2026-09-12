@@ -337,9 +337,16 @@ export const CloudbedsDataProvider = ({ children }) => {
     return () => window.clearInterval(interval);
   }, [refresh]);
 
-  const connect = useCallback(() => {
-    const apiOrigin = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-    window.location.assign(`${apiOrigin}/api/integrations/cloudbeds/connect`);
+  const connect = useCallback(async () => {
+    try {
+      setLoading(true); setError('');
+      const response = await api.post('/integrations/cloudbeds/connect-url');
+      if (!response.data?.url) throw new Error('Cloudbeds authorization URL was not returned.');
+      window.location.assign(response.data.url);
+    } catch (requestError) {
+      setLoading(false);
+      setError(requestError.response?.data?.message || requestError.message || 'Could not start Cloudbeds authorization.');
+    }
   }, []);
 
   const reauthorize = useCallback(async () => {
@@ -350,8 +357,9 @@ export const CloudbedsDataProvider = ({ children }) => {
       setReservations([]); setProperties([]); setRooms([]); setCustomers([]); setHousekeeping([]);
       setDashboard(null); setDiagnostics(null);
       setStatus({ connected: false, authorized: false, connectionVerified: true, appState: 'disabled', environment: status?.environment || 'sandbox' });
-      const apiOrigin = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-      window.location.assign(`${apiOrigin}/api/integrations/cloudbeds/connect`);
+      const authorization = await api.post('/integrations/cloudbeds/connect-url');
+      if (!authorization.data?.url) throw new Error('Cloudbeds authorization URL was not returned.');
+      window.location.assign(authorization.data.url);
     } catch (requestError) {
       setLoading(false);
       setError(requestError.response?.data?.message || requestError.message || 'Could not disconnect the existing Cloudbeds session before reauthorization.');
