@@ -2,7 +2,7 @@ const crypto = require('crypto');
 const db = require('../config/db');
 
 const PROVIDER = 'cloudbeds';
-const ENVIRONMENT = process.env.CLOUDBEDS_ENVIRONMENT || 'sandbox';
+const ENVIRONMENT = process.env.CLOUDBEDS_ENVIRONMENT || 'production';
 const API_BASE = (process.env.CLOUDBEDS_API_BASE || 'https://api.cloudbeds.com/api/v1.3').replace(/\/$/, '');
 const AUTH_BASE = (process.env.CLOUDBEDS_AUTH_BASE || 'https://hotels.cloudbeds.com/api/v1.3').replace(/\/$/, '');
 const REDIRECT_URI = process.env.CLOUDBEDS_REDIRECT_URI || 'https://api.sem-management.com/api/integrations/cloudbeds/callback';
@@ -11,17 +11,20 @@ const AUTH_STATE_TTL_MINUTES = 10;
 
 const FULL_AUTH_SCOPES = [
     'read:customFields',
+    'write:customFields',
     'read:dashboard',
     'read:guest',
+    'write:guest',
     'read:hotel',
-    'read:housekeeping',
-    'write:housekeeping',
     'read:reservation',
+    'write:reservation',
     'read:resourceReservations',
     'read:room',
     'read:roomblock',
+    'write:roomblock',
     'read:addon',
     'read:item',
+    'write:item',
     'read:currency',
     'read:payment',
     'read:rate',
@@ -821,11 +824,11 @@ function getCapabilities() {
         writes: {
             reservations: ['create', 'status', 'estimatedArrivalTime', 'checkInDate', 'checkOutDate', 'guestCounts', 'customFields', 'roomConfiguration'],
             roomAssignment: true, guests: true,
-            housekeeping: ['dirty', 'clean', 'inspected', 'doNotDisturb', 'refusedService', 'vacantPickup', 'comments'],
+            housekeeping: [],
             roomBlocks: ['blocked', 'out_of_service', 'courtesy_hold'], customFolioItems: true,
             paymentWrite: false, deleteOperations: false,
         },
-        reads: ['availability', 'calendarInventory', 'reservations', 'guests', 'rooms', 'housekeeping', 'dashboard', 'rates', 'sources', 'items', 'currency', 'payments', 'taxesAndFees'],
+        reads: ['availability', 'calendarInventory', 'reservations', 'guests', 'rooms', 'dashboard', 'rates', 'sources', 'items', 'currency', 'payments', 'taxesAndFees'],
     };
 }
 
