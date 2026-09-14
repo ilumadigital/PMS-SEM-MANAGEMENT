@@ -19,12 +19,24 @@ const REQUIRED_SCOPES = [
 
 const DEFAULT_AUTH_SCOPES = [
     'read:customFields',
+    'write:customFields',
     'read:dashboard',
     'read:guest',
+    'write:guest',
     'read:hotel',
     'read:reservation',
+    'write:reservation',
     'read:resourceReservations',
     'read:room',
+    'read:roomblock',
+    'write:roomblock',
+    'read:addon',
+    'read:item',
+    'write:item',
+    'read:currency',
+    'read:payment',
+    'read:rate',
+    'read:taxesAndFees',
 ];
 
 function authorizationScopes() {
