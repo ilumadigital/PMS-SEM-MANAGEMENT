@@ -536,7 +536,7 @@ async function getApiKey() {
         return process.env.CLOUDBEDS_API_KEY.trim();
     }
 
-    const error = new Error('Cloudbeds sandbox is not connected yet.');
+    const error = new Error('Cloudbeds is not connected yet.');
     error.code = 'CLOUDBEDS_NOT_CONNECTED';
     error.status = 409;
     throw error;
@@ -761,22 +761,60 @@ async function exchangeAuthorizationCode(code, state) {
 
 async function getConnectionStatus() {
     const stored = await getStoredIntegration();
+    const allowEnvApiKey = String(process.env.CLOUDBEDS_ALLOW_ENV_API_KEY || 'false') === 'true';
+    const hasEnvApiKey = allowEnvApiKey && Boolean(process.env.CLOUDBEDS_API_KEY);
 
-    if (!stored) {
-        const allowEnvApiKey = String(process.env.CLOUDBEDS_ALLOW_ENV_API_KEY || 'false') === 'true';
-        if (!allowEnvApiKey || !process.env.CLOUDBEDS_API_KEY) {
+    // Self-service / private Cloudbeds credentials are authenticated with the generated
+    // cbat_ API key directly. They must not go through the Marketplace OAuth "Connect" flow.
+    if (!stored && hasEnvApiKey) {
+        try {
+            const snapshot = await listPmsSnapshot();
+            return {
+                connected: snapshot.dataStatus === 'ready',
+                authorized: true,
+                connectionVerified: true,
+                appState: 'api_key',
+                dataStatus: snapshot.dataStatus,
+                environment: ENVIRONMENT,
+                source: 'environment_api_key',
+                properties: snapshot.properties || [],
+                connectedPropertyIds: snapshot.connectedPropertyIds || [],
+                requiredScopes: REQUIRED_SCOPES,
+                verificationApiBase: snapshot.cloudbedsApiBase || API_BASE,
+                lastSyncAt: new Date().toISOString(),
+                lastWebhookAt: null,
+            };
+        } catch (error) {
             return {
                 connected: false,
+                authorized: true,
                 connectionVerified: false,
-                appState: 'disabled',
+                appState: 'api_key_error',
+                dataStatus: 'error',
                 environment: ENVIRONMENT,
-                source: null,
+                source: 'environment_api_key',
                 properties: [],
+                connectedPropertyIds: [],
                 requiredScopes: REQUIRED_SCOPES,
+                verificationError: safeError(error),
                 lastSyncAt: null,
                 lastWebhookAt: null,
             };
         }
+    }
+
+    if (!stored) {
+        return {
+            connected: false,
+            connectionVerified: false,
+            appState: 'disabled',
+            environment: ENVIRONMENT,
+            source: null,
+            properties: [],
+            requiredScopes: REQUIRED_SCOPES,
+            lastSyncAt: null,
+            lastWebhookAt: null,
+        };
     }
 
     let apiKey;
@@ -835,7 +873,7 @@ async function getConnectionStatus() {
         appState: verification.appState,
         dataStatus,
         environment: ENVIRONMENT,
-        source: stored ? 'automatic_delivery' : 'environment',
+        source: 'automatic_delivery',
         properties,
         connectedPropertyIds: propertyIds,
         requiredScopes: REQUIRED_SCOPES,
