@@ -2,7 +2,7 @@ const crypto = require('crypto');
 const db = require('../config/db');
 
 const PROVIDER = 'cloudbeds';
-const ENVIRONMENT = process.env.CLOUDBEDS_ENVIRONMENT || 'sandbox';
+const ENVIRONMENT = process.env.CLOUDBEDS_ENVIRONMENT || 'production';
 const API_BASE = (process.env.CLOUDBEDS_API_BASE || 'https://api.cloudbeds.com/api/v1.3').replace(/\/$/, '');
 const AUTH_BASE = (process.env.CLOUDBEDS_AUTH_BASE || 'https://hotels.cloudbeds.com/api/v1.3').replace(/\/$/, '');
 const REDIRECT_URI = process.env.CLOUDBEDS_REDIRECT_URI || 'https://api.sem-management.com/api/integrations/cloudbeds/callback';
@@ -14,7 +14,6 @@ const REQUIRED_SCOPES = [
     'read:guest',
     'read:room',
     'read:dashboard',
-    'read:housekeeping',
     'read:hotel',
 ];
 
@@ -23,8 +22,6 @@ const DEFAULT_AUTH_SCOPES = [
     'read:dashboard',
     'read:guest',
     'read:hotel',
-    'read:housekeeping',
-    'write:housekeeping',
     'read:reservation',
     'read:resourceReservations',
     'read:room',
@@ -36,7 +33,10 @@ function authorizationScopes() {
         .map((scope) => scope.trim())
         .filter(Boolean);
 
-    return configured.length ? uniqueStrings(configured) : DEFAULT_AUTH_SCOPES;
+    const requested = configured.length ? uniqueStrings(configured) : DEFAULT_AUTH_SCOPES;
+    // SEM PMS owns housekeeping locally. Never request Cloudbeds housekeeping scopes,
+    // even if an older production env file still contains them.
+    return requested.filter((scope) => !String(scope).toLowerCase().includes('housekeeping'));
 }
 
 let tablesReady = false;
@@ -360,7 +360,7 @@ async function saveIntegration(apiKey, properties = []) {
         [PROVIDER, ENVIRONMENT]
     );
 
-    const sandboxOnly = String(process.env.CLOUDBEDS_SANDBOX_ONLY || 'true') !== 'false';
+    const sandboxOnly = String(process.env.CLOUDBEDS_SANDBOX_ONLY || 'false') === 'true';
     const allowRebind = String(process.env.CLOUDBEDS_ALLOW_REBIND || 'false') === 'true';
 
     if (sandboxOnly && !allowRebind && existingRows[0]?.properties_json) {
@@ -2091,12 +2091,12 @@ async function listPmsSnapshot() {
         ...apiBases,
     ]);
 
-    const [housekeepingResult, dashboardResult] = await Promise.all([
-        fetchHousekeeping(apiKey, orderedBases, finalPropertyIds),
-        fetchDashboardSnapshot(apiKey, orderedBases, finalPropertyIds),
-    ]);
+    const dashboardResult = await fetchDashboardSnapshot(apiKey, orderedBases, finalPropertyIds);
+    const housekeepingResult = { items: [], attempts: [] };
 
-    const rooms = decorateRooms(resources.rooms, reservations, housekeepingResult.items);
+    // Cloudbeds housekeeping is intentionally ignored. Room readiness is derived and
+    // stored locally by SEM PMS from reservation-driven cleaning tasks.
+    const rooms = decorateRooms(resources.rooms, reservations, []);
     const guests = mergeGuests(resources.guests, reservations);
     const dashboard =
         dashboardResult.items.length > 0
@@ -2118,7 +2118,7 @@ async function listPmsSnapshot() {
                 if (path.includes('Reservations')) return 'read:reservation';
                 if (path.includes('Guest')) return 'read:guest';
                 if (path.includes('Rooms')) return 'read:room';
-                if (path.includes('Housekeeping')) return 'read:housekeeping';
+                if (path.includes('Housekeeping')) return null;
                 if (path.includes('Dashboard')) return 'read:dashboard';
                 if (path.includes('Hotels')) return 'read:hotel';
                 return null;
@@ -2331,7 +2331,7 @@ function getRuntimeConfiguration() {
 
     return {
         environment: ENVIRONMENT,
-        sandboxOnly: String(process.env.CLOUDBEDS_SANDBOX_ONLY || 'true') !== 'false',
+        sandboxOnly: String(process.env.CLOUDBEDS_SANDBOX_ONLY || 'false') === 'true',
         automaticDelivery,
         apiBase: API_BASE,
         authBase: AUTH_BASE,
