@@ -1,4 +1,5 @@
 const cloudbedsService = require('../services/cloudbeds.service');
+const operationsService = require('../services/operations.service');
 const cloudbedsOperationsService = require('../services/cloudbedsOperations.service');
 
 function escapeHtml(value) {
@@ -139,7 +140,7 @@ const callback = async (req, res) => {
                   <p style="line-height:1.7;color:#c9c4bc">Token resources: <strong style="color:#fff">${escapeHtml(tokenResourceLabel || 'None returned')}</strong></p>
                   ${
                     isReady
-                      ? `<p style="line-height:1.7;color:#c9c4bc">Reservations, guests and rooms are read-only. SEM PMS may write only housekeeping room condition (Clean / Dirty / Inspected) back to Cloudbeds.</p>`
+                      ? `<p style="line-height:1.7;color:#c9c4bc">Reservations, guests and rooms are synchronized from Cloudbeds. Housekeeping is managed exclusively inside SEM PMS and is never written back to Cloudbeds.</p>`
                       : `<p style="line-height:1.7;color:#f0d6a5">Cloudbeds issued an API key, but the required PMS resources could not all be verified.</p>
                          <p style="line-height:1.7;color:#c9c4bc">Detected missing permissions: <strong style="color:#fff">${escapeHtml(missingScopes.join(', ') || 'None explicitly reported')}</strong></p>
                          <p style="line-height:1.7;color:#f0d6a5">${escapeHtml(guidance)}</p>
@@ -200,6 +201,7 @@ const reservations = async (req, res) => {
 const snapshot = async (req, res) => {
     try {
         const result = await cloudbedsService.listPmsSnapshot();
+        await operationsService.reconcileHousekeepingFromReservations(result.reservations || []);
         return res.status(200).json({ success: true, ...result });
     } catch (error) {
         if (error.code === 'CLOUDBEDS_NOT_CONNECTED') return sendError(res, error, 409);
