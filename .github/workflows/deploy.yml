@@ -53,11 +53,91 @@ jobs:
             fi
 
             echo "Validate production secrets"
-            for VAR in CLOUDBEDS_CLIENT_ID CLOUDBEDS_CLIENT_SECRET CLOUDBEDS_REDIRECT_URI JWT_SECRET SMTP_HOST SMTP_USER SMTP_PASS SMTP_FROM; do
+            for VAR in JWT_SECRET SMTP_HOST SMTP_USER SMTP_PASS SMTP_FROM; do
               grep -Eq "^${VAR}=.+" "$ENV_FILE" || { echo "Missing required production variable: $VAR"; exit 1; }
             done
 
-            if grep -Eq '^CLOUDBEDS_ENVIRONMENT=.+' "$ENV_FILE" && ! grep -Eq '^CLOUDBEDS_ENVIRONMENT=production$' "$ENV_FILE"; then
+            if grep -Eq '^CLOUDBEDS_ALLOW_ENV_API_KEY=true
+              echo "CLOUDBEDS_ENVIRONMENT must be production for this deployment"
+              exit 1
+            fi
+
+            grep -Eq '^CLOUDBEDS_REDIRECT_URI=https://api\.sem-management\.com/api/integrations/cloudbeds/callback$' "$ENV_FILE" || { echo "CLOUDBEDS_REDIRECT_URI does not match the production callback URL"; exit 1; }
+
+            if grep -Eq '^CLOUDBEDS_API_KEY=.+' "$ENV_FILE" && ! grep -Eq '^CLOUDBEDS_ALLOW_ENV_API_KEY=true$' "$ENV_FILE"; then
+              echo "Note: CLOUDBEDS_API_KEY is present but will be ignored; automatic delivery is authoritative."
+            fi
+
+            echo "Remove stale old config files"
+            rm -f frontend/postcss.config.js frontend/postcss.config.cjs frontend/postcss.config.mjs
+
+            echo "Remove stale Docker Compose temporary containers from interrupted deploys"
+            docker ps -a --format '{{.ID}} {{.Names}}' \
+              | awk '$2 ~ /^[0-9a-f]+_sem_pms_(db|backend|frontend)$/ {print $1}' \
+              | xargs -r docker rm -f
+
+            echo "Build backend and frontend production images"
+            docker compose build backend frontend
+
+            echo "Keep MariaDB running without recreating it"
+            docker compose up -d db
+
+            echo "Recreate application containers only"
+            docker compose up -d --no-deps --force-recreate backend frontend
+
+            echo "Check running containers"
+            docker compose ps
+
+            echo "Backend logs"
+            docker compose logs --tail=120 backend
+
+            echo "Frontend logs"
+            docker compose logs --tail=80 frontend
+ "$ENV_FILE"; then
+              grep -Eq '^CLOUDBEDS_API_KEY=.+' "$ENV_FILE" || { echo "CLOUDBEDS_API_KEY is required when CLOUDBEDS_ALLOW_ENV_API_KEY=true"; exit 1; }
+            else
+              for VAR in CLOUDBEDS_CLIENT_ID CLOUDBEDS_CLIENT_SECRET CLOUDBEDS_REDIRECT_URI; do
+                grep -Eq "^${VAR}=.+" "$ENV_FILE" || { echo "Missing required Cloudbeds OAuth variable: $VAR"; exit 1; }
+              done
+            fi
+
+            if grep -Eq '^CLOUDBEDS_ENVIRONMENT=.+' "$ENV_FILE" && ! grep -Eq '^CLOUDBEDS_ENVIRONMENT=production
+              echo "CLOUDBEDS_ENVIRONMENT must be production for this deployment"
+              exit 1
+            fi
+
+            grep -Eq '^CLOUDBEDS_REDIRECT_URI=https://api\.sem-management\.com/api/integrations/cloudbeds/callback$' "$ENV_FILE" || { echo "CLOUDBEDS_REDIRECT_URI does not match the production callback URL"; exit 1; }
+
+            if grep -Eq '^CLOUDBEDS_API_KEY=.+' "$ENV_FILE" && ! grep -Eq '^CLOUDBEDS_ALLOW_ENV_API_KEY=true$' "$ENV_FILE"; then
+              echo "Note: CLOUDBEDS_API_KEY is present but will be ignored; automatic delivery is authoritative."
+            fi
+
+            echo "Remove stale old config files"
+            rm -f frontend/postcss.config.js frontend/postcss.config.cjs frontend/postcss.config.mjs
+
+            echo "Remove stale Docker Compose temporary containers from interrupted deploys"
+            docker ps -a --format '{{.ID}} {{.Names}}' \
+              | awk '$2 ~ /^[0-9a-f]+_sem_pms_(db|backend|frontend)$/ {print $1}' \
+              | xargs -r docker rm -f
+
+            echo "Build backend and frontend production images"
+            docker compose build backend frontend
+
+            echo "Keep MariaDB running without recreating it"
+            docker compose up -d db
+
+            echo "Recreate application containers only"
+            docker compose up -d --no-deps --force-recreate backend frontend
+
+            echo "Check running containers"
+            docker compose ps
+
+            echo "Backend logs"
+            docker compose logs --tail=120 backend
+
+            echo "Frontend logs"
+            docker compose logs --tail=80 frontend
+ "$ENV_FILE"; then
               echo "CLOUDBEDS_ENVIRONMENT must be production for this deployment"
               exit 1
             fi
