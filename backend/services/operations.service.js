@@ -309,12 +309,16 @@ async function reconcileHousekeepingFromReservations(reservations = []) {
                 ]
             );
 
-            await updateHousekeepingStatus(roomId, {
-                propertyId: String(reservation.propertyId || reservation.property?.id || 'unknown-property'),
-                roomNumber: roomNumbers[index] || roomNumbers[0] || null,
-                roomCondition: 'dirty',
-                statusDate: String(reservation.departureDate).slice(0, 10),
-            }, { userId: 'reservation-sync', role: 'system' });
+            const departureDate = String(reservation.departureDate).slice(0, 10);
+            const today = new Date().toISOString().slice(0, 10);
+            if (departureDate <= today) {
+                await updateHousekeepingStatus(roomId, {
+                    propertyId: String(reservation.propertyId || reservation.property?.id || 'unknown-property'),
+                    roomNumber: roomNumbers[index] || roomNumbers[0] || null,
+                    roomCondition: 'dirty',
+                    statusDate: departureDate,
+                }, { userId: 'reservation-sync', role: 'system' });
+            }
         }
     }
 
