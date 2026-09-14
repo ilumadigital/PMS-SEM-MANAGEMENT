@@ -9,7 +9,7 @@ const todayKey = () => { const d=new Date(); return `${d.getFullYear()}-${String
 const CleaningMobile = () => {
   const { user } = useContext(AuthContext);
   const {
-    housekeeping, rooms, properties, reservations, diagnostics, loading, refresh,
+    housekeeping, rooms, properties, reservations, loading, refresh,
     updateHousekeeping, writeState,
   } = useContext(CloudbedsDataContext);
   const [filter, setFilter] = useState('all');
@@ -76,8 +76,7 @@ const CleaningMobile = () => {
   const occupied = housekeeping.filter((item) => item.roomOccupied).length;
   const assignmentInProgress = assignments.filter((item) => item.status === 'in_progress').length;
   const assignmentCompleted = assignments.filter((item) => item.status === 'completed').length;
-  const assignmentWaiting = assignments.filter((item) => item.status === 'assigned').length;
-  const missingScope = (diagnostics?.missingScopes || []).includes('read:housekeeping');
+  const assignmentWaiting = assignments.filter((item) => ['pending','assigned'].includes(item.status)).length;
 
   const roomContext = (item) => {
     const room = rooms.find((candidate) => String(candidate.id) === String(item.roomId));
@@ -136,16 +135,14 @@ const CleaningMobile = () => {
   };
 
   return <div className="space-y-5 pb-10">
-    <PageHeader title="Housekeeping" description="Dirty, Clean and Inspected are managed in SEM PMS and synced to Cloudbeds housekeeping so room readiness matches in both systems. Refill, linens and other SEM-only details stay local." actions={<button onClick={refresh} className="rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-blue-700">Refresh</button>} />
-
-    {missingScope && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">Cloudbeds has not granted <strong>Housekeeping READ</strong>. Re-authorize the app after enabling the scope.</div>}
+    <PageHeader title="Housekeeping" description="Housekeeping is managed entirely inside SEM PMS. Cloudbeds supplies reservation and room data only; cleaning status, assignments and readiness never sync back to Cloudbeds." actions={<button onClick={refresh} className="rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-blue-700">Refresh</button>} />
     {(writeState.error || notice) && <div className={`rounded-xl border px-4 py-3 text-sm font-semibold ${writeState.error?'border-rose-200 bg-rose-50 text-rose-700':'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>{writeState.error || notice}</div>}
     {assignmentError && <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{assignmentError}</div>}
     {canAssign && <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="flex flex-col gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div className="text-sm font-black text-slate-950">Cleaner assignments</div>
-          <div className="mt-1 text-xs text-slate-500">Assign rooms and watch each Cleaner move from Assigned → In progress → Completed in real time.</div>
+          <div className="mt-1 text-xs text-slate-500">Checkout-based tasks are created automatically from reservations. Assign a Cleaner and watch Pending → In progress → Completed in real time.</div>
         </div>
         <input type="date" value={assignmentDate} onChange={e=>setAssignmentDate(e.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700"/>
       </div>
