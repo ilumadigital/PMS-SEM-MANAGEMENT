@@ -1,6 +1,5 @@
-import React, { useContext, useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import api from '../services/api';
-import { CloudbedsDataContext } from '../context/CloudbedsDataContext';
 import { EmptyState, PageHeader, Panel, StatusBadge, TableShell, Td, Th } from '../components/PmsUi';
 
 const dateKey = (date) => {
@@ -41,7 +40,6 @@ const statusTone = (status) => {
 };
 
 const CleanerSchedulePage = () => {
-  const { updateHousekeeping } = useContext(CloudbedsDataContext);
   const [view, setView] = useState('list');
   const [calendarMonth, setCalendarMonth] = useState(firstOfMonth());
   const [rows, setRows] = useState([]);
@@ -79,21 +77,7 @@ const CleanerSchedulePage = () => {
   };
 
   const markClean = async (row) => {
-    setSaving(String(row.id));
-    setError('');
-    try {
-      await updateHousekeeping(row.room_id, {
-        propertyId: row.property_id,
-        roomNumber: row.room_number,
-        roomCondition: 'clean',
-      });
-      await api.patch(`/management/housekeeping-assignments/${row.id}`, { status: 'completed' });
-      await load();
-    } catch (requestError) {
-      setError(requestError.response?.data?.message || requestError.response?.data?.error || requestError.message);
-    } finally {
-      setSaving('');
-    }
+    await patch(row, { status: 'completed' });
   };
 
   const filteredRows = useMemo(
@@ -125,7 +109,7 @@ const CleanerSchedulePage = () => {
   return <div className="space-y-6">
     <PageHeader
       title="My Cleaning Schedule"
-      description="Only rooms assigned to you are shown. Use List for task details or Calendar for your monthly program. Marking a room Clean updates SEM PMS and Cloudbeds housekeeping."
+      description="Only rooms assigned to you are shown. Use List for task details or Calendar for your monthly program. Cleaning status is stored only in SEM PMS; Cloudbeds is not used for housekeeping."
       actions={<div className="flex flex-wrap items-center gap-2">
         <ViewToggle view={view} setView={setView} />
         <button onClick={load} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-700">Refresh</button>
