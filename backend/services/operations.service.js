@@ -265,6 +265,13 @@ async function reconcileHousekeepingFromReservations(reservations = []) {
         for (let index = 0; index < roomIds.length; index += 1) {
             const roomId = roomIds[index];
             if (!roomId) continue;
+            await db.query(
+                `DELETE FROM housekeeping_assignments
+                 WHERE source = ? AND external_reservation_id = ?
+                   AND status IN ('pending','assigned')
+                   AND (room_id <> ? OR task_date <> ?)`,
+                [SOURCE, String(reservation.id), roomId, String(reservation.departureDate).slice(0, 10)]
+            );
             const sameDayArrival = arrivalsByRoomDate.get(`${roomId}|${reservation.departureDate}`);
             const arrivalTime = sameDayArrival?.actualArrivalTime || sameDayArrival?.arrivalTime || null;
             const priority = sameDayArrival ? 'high' : 'standard';
@@ -312,6 +319,16 @@ async function reconcileHousekeepingFromReservations(reservations = []) {
     }
 
     return { tasks: active.length };
+}
+
+async function cancelHousekeepingForReservation(reservationId) {
+    await ensureTables();
+    await db.query(
+        `DELETE FROM housekeeping_assignments
+         WHERE source = ? AND external_reservation_id = ? AND status IN ('pending','assigned')`,
+        [SOURCE, String(reservationId)]
+    );
+    return { reservationId: String(reservationId), cancelled: true };
 }
 
 async function listReservationOperations() {
@@ -445,4 +462,5 @@ module.exports = {
     updateTransfer,
     listHousekeepingSchedule,
     reconcileHousekeepingFromReservations,
+    cancelHousekeepingForReservation,
 };
