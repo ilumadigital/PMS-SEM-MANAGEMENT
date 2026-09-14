@@ -1,7 +1,7 @@
 const db = require('../config/db');
 
 const SOURCE = 'cloudbeds';
-const HOUSEKEEPING_STATUSES = ['dirty', 'clean', 'no_show', 'inspected'];
+const HOUSEKEEPING_STATUSES = ['dirty', 'pending', 'in_progress', 'clean', 'inspected', 'no_show'];
 const RESERVATION_STATUSES = ['confirmed', 'checked_in', 'checked_out', 'no_show', 'cancelled'];
 let tablesReady = false;
 
@@ -48,6 +48,44 @@ async function ensureTables() {
 
     try { await db.query(`ALTER TABLE room_operations ADD COLUMN IF NOT EXISTS refill TINYINT(1) NOT NULL DEFAULT 0 AFTER housekeeping_status`); } catch (_) {}
     try { await db.query(`ALTER TABLE room_operations ADD COLUMN IF NOT EXISTS extra_linens VARCHAR(255) NULL AFTER refill`); } catch (_) {}
+
+    await db.query(`
+        CREATE TABLE IF NOT EXISTS housekeeping_assignments (
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            property_id VARCHAR(128) NOT NULL,
+            property_name VARCHAR(255) NULL,
+            room_id VARCHAR(128) NOT NULL,
+            room_number VARCHAR(128) NULL,
+            room_type VARCHAR(255) NULL,
+            task_date DATE NOT NULL,
+            cleaner_user_id INT NULL,
+            status VARCHAR(32) NOT NULL DEFAULT 'pending',
+            notes TEXT NULL,
+            started_at DATETIME NULL,
+            completed_at DATETIME NULL,
+            source VARCHAR(32) NOT NULL DEFAULT 'local',
+            external_reservation_id VARCHAR(128) NULL,
+            guest_name VARCHAR(255) NULL,
+            arrival_date DATE NULL,
+            arrival_time VARCHAR(16) NULL,
+            priority VARCHAR(32) NOT NULL DEFAULT 'standard',
+            created_by INT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_housekeeping_room_day (room_id, task_date),
+            INDEX idx_housekeeping_cleaner_day (cleaner_user_id, task_date),
+            INDEX idx_housekeeping_property_day (property_id, task_date),
+            INDEX idx_housekeeping_external_reservation (source, external_reservation_id)
+        )
+    `);
+    try { await db.query(`ALTER TABLE housekeeping_assignments MODIFY cleaner_user_id INT NULL`); } catch (_) {}
+    try { await db.query(`ALTER TABLE housekeeping_assignments ADD COLUMN IF NOT EXISTS source VARCHAR(32) NOT NULL DEFAULT 'local' AFTER completed_at`); } catch (_) {}
+    try { await db.query(`ALTER TABLE housekeeping_assignments ADD COLUMN IF NOT EXISTS external_reservation_id VARCHAR(128) NULL AFTER source`); } catch (_) {}
+    try { await db.query(`ALTER TABLE housekeeping_assignments ADD COLUMN IF NOT EXISTS guest_name VARCHAR(255) NULL AFTER external_reservation_id`); } catch (_) {}
+    try { await db.query(`ALTER TABLE housekeeping_assignments ADD COLUMN IF NOT EXISTS arrival_date DATE NULL AFTER guest_name`); } catch (_) {}
+    try { await db.query(`ALTER TABLE housekeeping_assignments ADD COLUMN IF NOT EXISTS arrival_time VARCHAR(16) NULL AFTER arrival_date`); } catch (_) {}
+    try { await db.query(`ALTER TABLE housekeeping_assignments ADD COLUMN IF NOT EXISTS priority VARCHAR(32) NOT NULL DEFAULT 'standard' AFTER arrival_time`); } catch (_) {}
+    try { await db.query(`CREATE INDEX idx_housekeeping_external_reservation ON housekeeping_assignments (source, external_reservation_id)`); } catch (_) {}
 
     await db.query(`
         CREATE TABLE IF NOT EXISTS guest_housekeeping_schedule (
@@ -194,6 +232,88 @@ async function syncGuestOperations(portal, submitted, addons) {
     await syncLegacyReservationTimes(portal.reservation || {}, submitted);
 }
 
+
+async function reconcileHousekeepingFromReservations(reservations = []) {
+    await ensureTables();
+    const active = (Array.isArray(reservations) ? reservations : []).filter((reservation) => {
+        const status = String(reservation?.status || '').toLowerCase();
+        return reservation?.departureDate && !['cancelled', 'canceled', 'no_show'].includes(status);
+    });
+
+    const arrivalsByRoomDate = new Map();
+    for (const reservation of active) {
+        const ids = Array.isArray(reservation.roomIds) && reservation.roomIds.length
+            ? reservation.roomIds.map(String)
+            : (reservation.roomId ? [String(reservation.roomId)] : []);
+        for (const roomId of ids) {
+            const key = `${roomId}|${reservation.arrivalDate || ''}`;
+            if (!arrivalsByRoomDate.has(key)) arrivalsByRoomDate.set(key, reservation);
+        }
+    }
+
+    for (const reservation of active) {
+        const roomIds = Array.isArray(reservation.roomIds) && reservation.roomIds.length
+            ? reservation.roomIds.map(String)
+            : (reservation.roomId ? [String(reservation.roomId)] : []);
+        const roomNumbers = Array.isArray(reservation.roomNumbers) && reservation.roomNumbers.length
+            ? reservation.roomNumbers.map(String)
+            : [reservation.roomNumber ? String(reservation.roomNumber) : ''];
+        const roomTypes = Array.isArray(reservation.roomTypes) && reservation.roomTypes.length
+            ? reservation.roomTypes.map(String)
+            : [reservation.roomType ? String(reservation.roomType) : ''];
+
+        for (let index = 0; index < roomIds.length; index += 1) {
+            const roomId = roomIds[index];
+            if (!roomId) continue;
+            const sameDayArrival = arrivalsByRoomDate.get(`${roomId}|${reservation.departureDate}`);
+            const arrivalTime = sameDayArrival?.actualArrivalTime || sameDayArrival?.arrivalTime || null;
+            const priority = sameDayArrival ? 'high' : 'standard';
+
+            await db.query(
+                `INSERT INTO housekeeping_assignments
+                  (property_id, property_name, room_id, room_number, room_type, task_date, cleaner_user_id, status,
+                   source, external_reservation_id, guest_name, arrival_date, arrival_time, priority)
+                 VALUES (?, ?, ?, ?, ?, ?, NULL, 'pending', ?, ?, ?, ?, ?, ?)
+                 ON DUPLICATE KEY UPDATE
+                   property_id=VALUES(property_id),
+                   property_name=COALESCE(VALUES(property_name), property_name),
+                   room_number=COALESCE(VALUES(room_number), room_number),
+                   room_type=COALESCE(VALUES(room_type), room_type),
+                   source=VALUES(source),
+                   external_reservation_id=VALUES(external_reservation_id),
+                   guest_name=VALUES(guest_name),
+                   arrival_date=VALUES(arrival_date),
+                   arrival_time=VALUES(arrival_time),
+                   priority=VALUES(priority),
+                   updated_at=NOW()`,
+                [
+                    String(reservation.propertyId || reservation.property?.id || 'unknown-property'),
+                    reservation.propertyName || reservation.property?.name || null,
+                    roomId,
+                    roomNumbers[index] || roomNumbers[0] || null,
+                    roomTypes[index] || roomTypes[0] || null,
+                    String(reservation.departureDate).slice(0, 10),
+                    SOURCE,
+                    String(reservation.id),
+                    reservation.guestName || null,
+                    sameDayArrival?.arrivalDate || null,
+                    arrivalTime,
+                    priority,
+                ]
+            );
+
+            await updateHousekeepingStatus(roomId, {
+                propertyId: String(reservation.propertyId || reservation.property?.id || 'unknown-property'),
+                roomNumber: roomNumbers[index] || roomNumbers[0] || null,
+                roomCondition: 'dirty',
+                statusDate: String(reservation.departureDate).slice(0, 10),
+            }, { userId: 'reservation-sync', role: 'system' });
+        }
+    }
+
+    return { tasks: active.length };
+}
+
 async function listReservationOperations() {
     await ensureTables();
     const rows = await db.query(`SELECT * FROM reservation_operations WHERE source = ? ORDER BY updated_at DESC`, [SOURCE]);
@@ -262,7 +382,7 @@ async function updateHousekeepingStatus(roomId, payload = {}, actor = {}) {
     const requestedStatus = payload.roomCondition ?? payload.status;
     const status = String(requestedStatus || existing?.housekeeping_status || 'dirty').toLowerCase();
     if (!HOUSEKEEPING_STATUSES.includes(status)) {
-        const error = new Error('Housekeeping status must be Dirty, Clean, No Show or Inspected.'); error.status = 422; throw error;
+        const error = new Error('Housekeeping status must be Dirty, Pending, In Progress, Clean, Inspected or No Show.'); error.status = 422; throw error;
     }
     const statusDate = String(payload.statusDate || new Date().toISOString().slice(0, 10)).slice(0, 10);
     const existingDate = existing?.status_date ? String(existing.status_date).slice(0, 10) : '';
@@ -324,4 +444,5 @@ module.exports = {
     listTransfers,
     updateTransfer,
     listHousekeepingSchedule,
+    reconcileHousekeepingFromReservations,
 };
