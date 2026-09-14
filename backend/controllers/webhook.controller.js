@@ -1,6 +1,7 @@
 const db = require('../config/db');
 const cloudbedsOperations = require('../services/cloudbedsOperations.service');
 const guestPortalService = require('../services/guestPortal.service');
+const operationsService = require('../services/operations.service');
 
 const cloudbedsStatus = (value) => {
     const status = String(value || '').toLowerCase();
@@ -50,6 +51,10 @@ const handleCloudbeds = async (payload, res) => {
     if (payload?.event) {
         const reservationId = cloudbedsReservationId(payload, eventMeta.externalId);
         scheduleGuestJourney(reservationId, payload.event);
+        const eventName = String(payload.event || '').toLowerCase();
+        if (reservationId && /(reservation|booking).*(cancel|canceled|cancelled)|(?:cancel|canceled|cancelled).*(reservation|booking)/.test(eventName)) {
+            await operationsService.cancelHousekeepingForReservation(String(reservationId));
+        }
         // Housekeeping events from Cloudbeds are intentionally ignored. SEM PMS is the source of truth.
         return res.status(200).json({
             success: true,
