@@ -89,7 +89,7 @@ const RoomsPage = () => {
   };
 
   return <div className="space-y-6">
-    <PageHeader title="Rooms" description="Cloudbeds room inventory with SEM PMS housekeeping state. Only Clean / Dirty / Inspected sync back to Cloudbeds; other PMS operational fields remain local." actions={status?.connected?<button onClick={refresh} className="rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-blue-700">Refresh Cloudbeds</button>:<span className="rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2 text-xs font-bold text-amber-700">Administrator connection required</span>} />
+    <PageHeader title="Rooms" description="Cloudbeds provides room and reservation inventory. Housekeeping state is owned entirely by SEM PMS and is never written back to Cloudbeds." actions={status?.connected?<button onClick={refresh} className="rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-blue-700">Refresh Cloudbeds</button>:<span className="rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2 text-xs font-bold text-amber-700">Administrator connection required</span>} />
     {error && <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>}
     {missingRoomScope && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">Cloudbeds has not granted <strong>Rooms READ</strong>. Re-authorize after enabling the scope.</div>}
     {(writeState.error || notice) && <div className={`rounded-xl border px-4 py-3 text-sm font-semibold ${writeState.error?'border-rose-200 bg-rose-50 text-rose-700':'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>{writeState.error || notice}</div>}
