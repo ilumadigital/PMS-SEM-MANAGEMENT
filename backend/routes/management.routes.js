@@ -3,6 +3,7 @@ const db = require('../config/db');
 const { protect } = require('../middleware/auth.middleware');
 const guestPortalService = require('../services/guestPortal.service');
 const notificationService = require('../services/notification.service');
+const operationsService = require('../services/operations.service');
 
 const router = express.Router();
 const ATH_AIRPORT_LABEL = 'ATH Airport';
@@ -62,8 +63,8 @@ async function ensureTables() {
     room_number VARCHAR(128) NULL,
     room_type VARCHAR(255) NULL,
     task_date DATE NOT NULL,
-    cleaner_user_id INT NOT NULL,
-    status VARCHAR(32) NOT NULL DEFAULT 'assigned',
+    cleaner_user_id INT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'pending',
     notes TEXT NULL,
     started_at DATETIME NULL,
     completed_at DATETIME NULL,
@@ -77,6 +78,13 @@ async function ensureTables() {
   try { await db.query(`ALTER TABLE housekeeping_assignments ADD COLUMN IF NOT EXISTS property_name VARCHAR(255) NULL AFTER property_id`); } catch (_) {}
   try { await db.query(`ALTER TABLE housekeeping_assignments ADD COLUMN IF NOT EXISTS started_at DATETIME NULL AFTER notes`); } catch (_) {}
   try { await db.query(`ALTER TABLE housekeeping_assignments ADD COLUMN IF NOT EXISTS completed_at DATETIME NULL AFTER started_at`); } catch (_) {}
+  try { await db.query(`ALTER TABLE housekeeping_assignments MODIFY cleaner_user_id INT NULL`); } catch (_) {}
+  try { await db.query(`ALTER TABLE housekeeping_assignments ADD COLUMN IF NOT EXISTS source VARCHAR(32) NOT NULL DEFAULT 'local' AFTER completed_at`); } catch (_) {}
+  try { await db.query(`ALTER TABLE housekeeping_assignments ADD COLUMN IF NOT EXISTS external_reservation_id VARCHAR(128) NULL AFTER source`); } catch (_) {}
+  try { await db.query(`ALTER TABLE housekeeping_assignments ADD COLUMN IF NOT EXISTS guest_name VARCHAR(255) NULL AFTER external_reservation_id`); } catch (_) {}
+  try { await db.query(`ALTER TABLE housekeeping_assignments ADD COLUMN IF NOT EXISTS arrival_date DATE NULL AFTER guest_name`); } catch (_) {}
+  try { await db.query(`ALTER TABLE housekeeping_assignments ADD COLUMN IF NOT EXISTS arrival_time VARCHAR(16) NULL AFTER arrival_date`); } catch (_) {}
+  try { await db.query(`ALTER TABLE housekeeping_assignments ADD COLUMN IF NOT EXISTS priority VARCHAR(32) NOT NULL DEFAULT 'standard' AFTER arrival_time`); } catch (_) {}
   await db.query(`CREATE TABLE IF NOT EXISTS app_settings (
     setting_key VARCHAR(120) PRIMARY KEY, setting_value TEXT NULL, updated_by INT NULL,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -129,7 +137,7 @@ router.get('/housekeeping-assignments', allowRoles(...housekeepingReadRoles), as
     );
     res.json(rows.map((row) => ({
       ...row,
-      cleaner_name: `${row.cleaner_first_name || ''} ${row.cleaner_last_name || ''}`.trim() || row.cleaner_email || 'Cleaner',
+      cleaner_name: `${row.cleaner_first_name || ''} ${row.cleaner_last_name || ''}`.trim() || row.cleaner_email || 'Unassigned',
     })));
   } catch (error) { console.error('[HOUSEKEEPING ASSIGNMENTS LIST]', error); res.status(500).json({ error: 'Could not load housekeeping assignments.' }); }
 });
@@ -178,7 +186,7 @@ router.patch('/housekeeping-assignments/:id', allowRoles(...housekeepingReadRole
     const cleanerLimited = role==='cleaner'||role==='cleaning';
     if (b.status !== undefined) {
       const status=String(b.status);
-      if (!['assigned','in_progress','completed'].includes(status)) return res.status(422).json({ error:'Invalid assignment status.' });
+      if (!['pending','assigned','in_progress','completed'].includes(status)) return res.status(422).json({ error:'Invalid assignment status.' });
       fields.push('status=?'); values.push(status);
       if (status === 'in_progress') {
         fields.push('started_at=COALESCE(started_at,NOW())');
@@ -186,7 +194,7 @@ router.patch('/housekeeping-assignments/:id', allowRoles(...housekeepingReadRole
       } else if (status === 'completed') {
         fields.push('completed_at=NOW()');
         fields.push('started_at=COALESCE(started_at,NOW())');
-      } else if (status === 'assigned') {
+      } else if (status === 'assigned' || status === 'pending') {
         fields.push('started_at=NULL');
         fields.push('completed_at=NULL');
       }
@@ -197,6 +205,26 @@ router.patch('/housekeeping-assignments/:id', allowRoles(...housekeepingReadRole
     if (!fields.length) return res.status(422).json({ error:'No supported assignment fields supplied.' });
     values.push(req.params.id);
     await db.query(`UPDATE housekeeping_assignments SET ${fields.join(', ')}, updated_at=NOW() WHERE id=?`,values);
+    const updatedRows = await db.query('SELECT * FROM housekeeping_assignments WHERE id=? LIMIT 1',[req.params.id]);
+    const updatedTask = updatedRows[0];
+    if (b.status !== undefined && updatedTask) {
+      const localRoomState = String(b.status) === 'completed'
+        ? 'clean'
+        : String(b.status) === 'in_progress'
+          ? 'in_progress'
+          : 'dirty';
+      // Housekeeping state is local-only: never write this status back to Cloudbeds.
+      await operationsService.updateHousekeepingStatus(
+        String(updatedTask.room_id),
+        {
+          propertyId: updatedTask.property_id,
+          roomNumber: updatedTask.room_number,
+          roomCondition: localRoomState,
+          statusDate: updatedTask.task_date,
+        },
+        req.user || {}
+      );
+    }
     const rows=await db.query('SELECT * FROM housekeeping_assignments WHERE id=? LIMIT 1',[req.params.id]);
     res.json(rows[0]);
   } catch (error) { console.error('[HOUSEKEEPING ASSIGNMENT UPDATE]', error); res.status(500).json({ error:'Could not update housekeeping assignment.' }); }
