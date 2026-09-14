@@ -106,13 +106,14 @@ const SettingsPage = () => {
   const requestedScopes=runtime?.authorizationScopes || runtime?.requiredScopes || status?.requiredScopes || [];
   const writeScopes=requestedScopes.filter((scope)=>String(scope).startsWith('write:'));
   const connectionStatus=error?'error':ready?'healthy':authorized?'review':'not connected';
-  const housekeepingWriteEnabled=writeScopes.includes('write:housekeeping');
+  const apiKeyMode=Boolean(runtime?.envApiKeyEnabled || status?.source==='environment_api_key');
+  const cloudbedsWriteCount=writeScopes.filter((scope)=>scope!=='write:housekeeping').length;
 
   return <div className="space-y-6">
     <PageHeader
       title="Developer Settings"
       description="Administrator-only configuration: users and roles, Cloudbeds authorization, operational defaults and technical audit."
-      actions={<div className="flex flex-wrap gap-2"><button onClick={refresh} disabled={loading} className="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 disabled:opacity-60">{loading?'Checking…':'Test sync'}</button>{authorized?<button onClick={reauthorize} className="rounded-lg bg-amber-600 px-3.5 py-2 text-sm font-semibold text-white">Re-authorize Cloudbeds</button>:<button onClick={connect} className="rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white">Connect Cloudbeds</button>}</div>}
+      actions={<div className="flex flex-wrap gap-2"><button onClick={refresh} disabled={loading} className="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 disabled:opacity-60">{loading?'Checking…':'Test sync'}</button>{!apiKeyMode&&(authorized?<button onClick={reauthorize} className="rounded-lg bg-amber-600 px-3.5 py-2 text-sm font-semibold text-white">Re-authorize Cloudbeds</button>:<button onClick={connect} className="rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white">Connect Cloudbeds</button>)}</div>}
     />
 
     {(error||runtimeError||userState.error)&&<div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{userState.error || error || runtimeError}</div>}
@@ -140,20 +141,20 @@ const SettingsPage = () => {
       <MetricCard label="Guests" value={loading?'…':customers.length}/>
       <MetricCard label="Rooms" value={loading?'…':rooms.length}/>
       <MetricCard label="Housekeeping" value={loading?'…':housekeeping.length}/>
-      <MetricCard label="Cloudbeds writes" value={housekeepingWriteEnabled?'HK only':'None'} tone={housekeepingWriteEnabled?'blue':'default'}/>
+      <MetricCard label="Cloudbeds writes" value={cloudbedsWriteCount?`${cloudbedsWriteCount} scopes`:'None'} tone={cloudbedsWriteCount?'blue':'default'}/>
       <MetricCard label="Sync state" value={ready?'Ready':authorized?'Review':'Offline'} tone={ready?'green':authorized?'amber':'default'}/>
     </div>
 
     <div className="grid gap-5 xl:grid-cols-2">
-      <Panel title="Cloudbeds connection" description="Reservations, properties and rooms are read-only. Only housekeeping room condition may write back."><div className="space-y-4 p-5">
+      <Panel title="Cloudbeds connection" description="Live Cloudbeds connection. Housekeeping stays entirely inside SEM PMS; reservation and guest write actions use the permitted Cloudbeds scopes."><div className="space-y-4 p-5">
         <Row label="SEM readiness" value={<StatusBadge status={connectionStatus}/>}/>
         <Row label="Authorized" value={authorized?'Yes':'No'}/>
         <Row label="Environment" value={status?.environment || runtime?.environment || 'sandbox'}/>
         <Row label="Data status" value={status?.dataStatus || 'offline'}/>
         <Row label="Property IDs" value={(status?.connectedPropertyIds||[]).join(', ')||'Not discovered'}/>
         <Row label="Last sync" value={status?.lastSyncAt || 'No successful sync yet'}/>
-        <Row label="Housekeeping write" value={housekeepingWriteEnabled?'Enabled · Clean / Dirty / Inspected only':'Missing · re-authorize after enabling scope'}/>
-        {authorized&&<button onClick={disconnect} className="rounded-lg border border-rose-300 bg-white px-4 py-2 text-sm font-semibold text-rose-700">Disconnect Cloudbeds</button>}
+        <Row label="Auth mode" value={apiKeyMode?'Organization API key':'OAuth / automatic delivery'}/><Row label="Housekeeping" value="SEM PMS local only"/>
+        {authorized&&!apiKeyMode&&<button onClick={disconnect} className="rounded-lg border border-rose-300 bg-white px-4 py-2 text-sm font-semibold text-rose-700">Disconnect Cloudbeds</button>}
       </div></Panel>
 
       <Panel title="Operations defaults" description="Technical defaults used across free shuttles, housekeeping and reports."><div className="grid gap-4 p-5 sm:grid-cols-2">
@@ -165,11 +166,11 @@ const SettingsPage = () => {
       </div></Panel>
     </div>
 
-    <Panel title="Cloudbeds permission model" description="All reservation and inventory scopes are read-only. write:housekeeping is the only intended write scope.">
-      <div className="grid gap-3 p-5 sm:grid-cols-2 xl:grid-cols-4">{requestedScopes.map(scope=>{const missing=missingScopes.includes(scope);const write=String(scope).startsWith('write:');const expectedWrite=scope==='write:housekeeping';return <div key={scope} className={`rounded-xl border p-4 ${missing?'border-amber-200 bg-amber-50':expectedWrite?'border-blue-200 bg-blue-50':'border-emerald-200 bg-emerald-50'}`}><div className="font-mono text-xs font-bold text-slate-900">{scope}</div><div className="mt-2 text-[11px] text-slate-600">{missing?'Permission needs attention':expectedWrite?'Controlled housekeeping write':'Read permission'}</div>{write&&!expectedWrite&&<div className="mt-2 text-[10px] font-bold text-rose-600">Unexpected write scope</div>}</div>;})}</div>
+    <Panel title="Cloudbeds permission model" description="Reservation, guest, room-block and item permissions are used by PMS operations. No Cloudbeds housekeeping scope is required.">
+      <div className="grid gap-3 p-5 sm:grid-cols-2 xl:grid-cols-4">{requestedScopes.map(scope=>{const missing=missingScopes.includes(scope);const write=String(scope).startsWith('write:');return <div key={scope} className={`rounded-xl border p-4 ${missing?'border-amber-200 bg-amber-50':write?'border-blue-200 bg-blue-50':'border-emerald-200 bg-emerald-50'}`}><div className="font-mono text-xs font-bold text-slate-900">{scope}</div><div className="mt-2 text-[11px] text-slate-600">{missing?'Permission needs attention':write?'Controlled PMS write permission':'Read permission'}</div></div>;})}</div>
     </Panel>
 
-    <Panel title="Cloudbeds write audit" description="The expected write operation is housekeeping room condition sync." action={<button onClick={loadAudit} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700">Refresh audit</button>}>
+    <Panel title="Cloudbeds write audit" description="Audited Cloudbeds reservation, guest, room assignment, room-block and item write operations." action={<button onClick={loadAudit} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700">Refresh audit</button>}>
       {auditError&&<div className="m-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-700">{auditError}</div>}
       {audit.length?<TableShell><thead><tr><Th>Time</Th><Th>User</Th><Th>Operation</Th><Th>Entity</Th><Th>Status</Th><Th>Request ID</Th></tr></thead><tbody className="divide-y divide-slate-100">{audit.map(item=><tr key={item.id}><Td>{formatDateTime(item.createdAt)}</Td><Td><div className="text-xs font-semibold text-slate-800">{item.actorUserId||'system'}</div><div className="text-[10px] text-slate-400">{item.actorRole||'—'}</div></Td><Td><div className="font-mono text-xs text-slate-700">{item.operation}</div><div className="text-[10px] text-slate-400">{item.endpoint}</div></Td><Td><div className="text-xs font-semibold">{item.entityType}</div><div className="font-mono text-[10px] text-slate-400">{item.externalId||'—'}</div></Td><Td><StatusBadge status={item.status}/>{item.errorMessage&&<div className="mt-1 max-w-56 text-[10px] text-rose-600">{item.errorMessage}</div>}</Td><Td><span className="font-mono text-[10px] text-slate-500">{item.requestId||'—'}</span></Td></tr>)}</tbody></TableShell>:<div className="p-8 text-center text-sm text-slate-500">No Cloudbeds writes recorded yet.</div>}
     </Panel>
