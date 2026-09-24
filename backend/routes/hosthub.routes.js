@@ -17,7 +17,7 @@ function sendError(res, error, fallback = 500) {
 
 router.get('/status', protect, readers, async (_req, res) => {
     try {
-        const config = await hosthub.getConfig({ includeSecret: false });
+        const config = hosthub.getConfig();
         res.json({
             success: true,
             provider: 'hosthub',
@@ -25,37 +25,7 @@ router.get('/status', protect, readers, async (_req, res) => {
             baseUrl: config.baseUrl,
             configured: config.configured,
             source: config.source,
-            updatedAt: config.updatedAt,
-            lastSyncAt: config.lastSyncAt,
         });
-    } catch (error) {
-        sendError(res, error);
-    }
-});
-
-router.put('/credentials', protect, restrictTo('admin'), async (req, res) => {
-    try {
-        const result = await hosthub.saveCredentials({
-            environment: req.body?.environment,
-            apiKey: req.body?.apiKey,
-            baseUrl: req.body?.baseUrl,
-            userId: req.user?.userId,
-        });
-        res.json({
-            success: true,
-            message: 'Hosthub credentials saved securely.',
-            provider: 'hosthub',
-            ...result,
-        });
-    } catch (error) {
-        sendError(res, error, 422);
-    }
-});
-
-router.delete('/credentials', protect, restrictTo('admin'), async (req, res) => {
-    try {
-        const result = await hosthub.disconnect(req.query.environment);
-        res.json({ success: true, message: 'Hosthub credentials removed.', ...result });
     } catch (error) {
         sendError(res, error);
     }
