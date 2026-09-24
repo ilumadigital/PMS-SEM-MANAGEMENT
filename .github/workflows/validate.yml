@@ -24,6 +24,8 @@ jobs:
           node --check backend/controllers/cloudbeds.controller.js
           node --check backend/routes/cloudbeds.routes.js
           node --check backend/routes/cloudbedsOperations.routes.js
+          node --check backend/services/hosthub.service.js
+          node --check backend/routes/hosthub.routes.js
           node --check backend/services/guestPortal.service.js
           node --check backend/controllers/guestPortal.controller.js
           node --check backend/routes/guestPortal.routes.js
