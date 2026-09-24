@@ -28,8 +28,8 @@ const SettingsPage = () => {
   const [newUser,setNewUser]=useState(emptyUser);
   const [userState,setUserState]=useState({saving:false,error:'',message:''});
   const [passwordDrafts,setPasswordDrafts]=useState({});
-  const [hosthub,setHosthub]=useState({ environment:'sandbox', baseUrl:'https://eric.hosthub.com/api/2019-03-01', apiKey:'', configured:false, source:'none', rentalCount:null });
-  const [hosthubState,setHosthubState]=useState({saving:false,testing:false,error:'',message:''});
+  const [hosthub,setHosthub]=useState({ environment:'sandbox', baseUrl:'https://eric.hosthub.com/api/2019-03-01', configured:false, source:'none', rentalCount:null, lastSyncAt:null });
+  const [hosthubState,setHosthubState]=useState({testing:false,error:'',message:''});
 
   const loadUsers = async () => {
     try {
@@ -70,8 +70,6 @@ const SettingsPage = () => {
           baseUrl:data.baseUrl||current.baseUrl,
           configured:Boolean(data.configured),
           source:data.source||'none',
-          updatedAt:data.updatedAt||null,
-          lastSyncAt:data.lastSyncAt||null,
         }));
       }
     });
@@ -115,59 +113,15 @@ const SettingsPage = () => {
     catch { setOpsState('error'); }
   };
 
-  const hosthubBaseFor=(environment)=>environment==='production'?'https://app.hosthub.com/api/2019-03-01':'https://eric.hosthub.com/api/2019-03-01';
-
-  const changeHosthubEnvironment=(environment)=>{
-    setHosthub((current)=>({
-      ...current,
-      environment,
-      baseUrl:hosthubBaseFor(environment),
-      apiKey:'',
-    }));
-    setHosthubState({saving:false,testing:false,error:'',message:''});
-  };
-
-  const saveHosthub=async()=>{
-    if(!String(hosthub.apiKey||'').trim()){
-      setHosthubState({saving:false,testing:false,error:'Enter the Hosthub API key first.',message:''});
-      return;
-    }
-    setHosthubState({saving:true,testing:false,error:'',message:''});
-    try {
-      const response=await api.put('/integrations/hosthub/credentials',{
-        environment:hosthub.environment,
-        baseUrl:hosthub.baseUrl,
-        apiKey:hosthub.apiKey,
-      });
-      const data=response.data||{};
-      setHosthub((current)=>({...current,configured:true,source:'database',apiKey:'',updatedAt:data.updatedAt||new Date().toISOString()}));
-      setHosthubState({saving:false,testing:false,error:'',message:'Hosthub API key saved securely.'});
-    } catch(err){
-      setHosthubState({saving:false,testing:false,error:err.response?.data?.message||err.message||'Could not save Hosthub credentials.',message:''});
-    }
-  };
-
   const testHosthub=async()=>{
-    setHosthubState({saving:false,testing:true,error:'',message:''});
+    setHosthubState({testing:true,error:'',message:''});
     try {
       const response=await api.post('/integrations/hosthub/test');
       const data=response.data||{};
       setHosthub((current)=>({...current,configured:true,rentalCount:data.rentalCount??0,lastSyncAt:new Date().toISOString()}));
-      setHosthubState({saving:false,testing:false,error:'',message:`Hosthub connected successfully · ${data.rentalCount??0} rentals found.`});
+      setHosthubState({testing:false,error:'',message:`Hosthub connected successfully · ${data.rentalCount??0} rentals found.`});
     } catch(err){
-      setHosthubState({saving:false,testing:false,error:err.response?.data?.message||err.message||'Hosthub connection test failed.',message:''});
-    }
-  };
-
-  const removeHosthub=async()=>{
-    if(!window.confirm('Remove the saved Hosthub API key for this environment?')) return;
-    setHosthubState({saving:true,testing:false,error:'',message:''});
-    try {
-      await api.delete('/integrations/hosthub/credentials',{params:{environment:hosthub.environment}});
-      setHosthub((current)=>({...current,configured:false,source:'none',apiKey:'',rentalCount:null}));
-      setHosthubState({saving:false,testing:false,error:'',message:'Hosthub credentials removed.'});
-    } catch(err){
-      setHosthubState({saving:false,testing:false,error:err.response?.data?.message||err.message||'Could not remove Hosthub credentials.',message:''});
+      setHosthubState({testing:false,error:err.response?.data?.message||err.message||'Hosthub connection test failed.',message:''});
     }
   };
 
@@ -237,27 +191,22 @@ const SettingsPage = () => {
       </div></Panel>
     </div>
 
-    <Panel title="Hosthub connection" description="Super Admin only. Store the Hosthub sandbox or production API key securely inside SEM PMS; the key is never returned to the browser after saving.">
+    <Panel title="Hosthub connection" description="Connection status only. Hosthub credentials are configured in the same protected server environment used for Cloudbeds credentials.">
       <div className="grid gap-4 p-5 lg:grid-cols-2">
-        <div className="space-y-4">
-          <label><span className="mb-1.5 block text-xs font-semibold text-slate-600">Environment</span><select value={hosthub.environment} onChange={e=>changeHosthubEnvironment(e.target.value)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm"><option value="sandbox">Sandbox (eric.hosthub.com)</option><option value="production">Production (app.hosthub.com)</option></select></label>
-          <Field label="API base URL" value={hosthub.baseUrl} onChange={v=>setHosthub({...hosthub,baseUrl:v})}/>
-          <Field label={hosthub.configured?'Replace API key':'API key'} type="password" value={hosthub.apiKey} onChange={v=>setHosthub({...hosthub,apiKey:v})}/>
-          <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] leading-5 text-slate-600">The key is encrypted in MariaDB using the PMS integration secret. After save, Settings only shows whether a key exists — never the key itself.</div>
-          {(hosthubState.error||hosthubState.message)&&<div className={`rounded-lg border px-3 py-2 text-xs font-semibold ${hosthubState.error?'border-rose-200 bg-rose-50 text-rose-700':'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>{hosthubState.error||hosthubState.message}</div>}
-          <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={saveHosthub} disabled={hosthubState.saving} className="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">{hosthubState.saving?'Saving…':hosthub.configured?'Replace Hosthub key':'Save Hosthub key'}</button>
-            <button type="button" onClick={testHosthub} disabled={!hosthub.configured||hosthubState.testing} className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 disabled:opacity-50">{hosthubState.testing?'Testing…':'Test Hosthub'}</button>
-            {hosthub.configured&&<button type="button" onClick={removeHosthub} className="rounded-lg border border-rose-300 bg-white px-4 py-2.5 text-sm font-bold text-rose-700">Remove key</button>}
-          </div>
-        </div>
         <div className="space-y-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
           <Row label="Status" value={<StatusBadge status={hosthub.configured?'healthy':'not connected'}/>}/>
           <Row label="Environment" value={hosthub.environment}/>
-          <Row label="Credential source" value={hosthub.source==='database'?'Encrypted PMS database':hosthub.source==='environment'?'Legacy server environment':'Not configured'}/>
+          <Row label="Credential source" value={hosthub.source==='environment'?'Protected server environment':'Not configured'}/>
           <Row label="API URL" value={hosthub.baseUrl}/>
           <Row label="Rentals detected" value={hosthub.rentalCount===null?'Run connection test':String(hosthub.rentalCount)}/>
-          <Row label="Last sync" value={hosthub.lastSyncAt?formatDateTime(hosthub.lastSyncAt):'No successful test yet'}/>
+          <Row label="Last test" value={hosthub.lastSyncAt?formatDateTime(hosthub.lastSyncAt):'No successful test yet'}/>
+        </div>
+        <div className="space-y-4">
+          <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm leading-6 text-slate-600">
+            Hosthub credentials are not editable from the PMS UI. They stay with the Cloudbeds credentials in the protected backend environment on the production server.
+          </div>
+          {(hosthubState.error||hosthubState.message)&&<div className={`rounded-lg border px-3 py-2 text-xs font-semibold ${hosthubState.error?'border-rose-200 bg-rose-50 text-rose-700':'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>{hosthubState.error||hosthubState.message}</div>}
+          <button type="button" onClick={testHosthub} disabled={!hosthub.configured||hosthubState.testing} className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 disabled:opacity-50">{hosthubState.testing?'Testing…':'Test Hosthub connection'}</button>
         </div>
       </div>
     </Panel>
