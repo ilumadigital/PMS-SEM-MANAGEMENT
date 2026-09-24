@@ -28,6 +28,8 @@ const SettingsPage = () => {
   const [newUser,setNewUser]=useState(emptyUser);
   const [userState,setUserState]=useState({saving:false,error:'',message:''});
   const [passwordDrafts,setPasswordDrafts]=useState({});
+  const [hosthub,setHosthub]=useState({ environment:'sandbox', baseUrl:'https://eric.hosthub.com/api/2019-03-01', apiKey:'', configured:false, source:'none', rentalCount:null });
+  const [hosthubState,setHosthubState]=useState({saving:false,testing:false,error:'',message:''});
 
   const loadUsers = async () => {
     try {
@@ -52,13 +54,26 @@ const SettingsPage = () => {
       getWriteAudit(100),
       api.get('/admin/users'),
       api.get('/admin/roles'),
-    ]).then(([cloud,settings,writes,userResult,roleResult])=>{
+      api.get('/integrations/hosthub/status'),
+    ]).then(([cloud,settings,writes,userResult,roleResult,hosthubResult])=>{
       if(!active)return;
       if(cloud.status==='fulfilled') setRuntime(cloud.value.data); else setRuntimeError(cloud.reason?.response?.data?.message || cloud.reason?.message || 'Could not load Cloudbeds runtime configuration.');
       if(settings.status==='fulfilled') setOps((current)=>({...current,...(settings.value.data||{})}));
       if(writes.status==='fulfilled') setAudit(writes.value||[]); else setAuditError(writes.reason?.response?.data?.message || writes.reason?.message || 'Could not load write audit.');
       if(userResult.status==='fulfilled') setUsers(userResult.value.data?.data||[]);
       if(roleResult.status==='fulfilled') setRoles(roleResult.value.data?.data||[]);
+      if(hosthubResult.status==='fulfilled') {
+        const data=hosthubResult.value.data||{};
+        setHosthub((current)=>({
+          ...current,
+          environment:data.environment||'sandbox',
+          baseUrl:data.baseUrl||current.baseUrl,
+          configured:Boolean(data.configured),
+          source:data.source||'none',
+          updatedAt:data.updatedAt||null,
+          lastSyncAt:data.lastSyncAt||null,
+        }));
+      }
     });
     return()=>{active=false;};
   },[getWriteAudit]);
@@ -100,6 +115,62 @@ const SettingsPage = () => {
     catch { setOpsState('error'); }
   };
 
+  const hosthubBaseFor=(environment)=>environment==='production'?'https://app.hosthub.com/api/2019-03-01':'https://eric.hosthub.com/api/2019-03-01';
+
+  const changeHosthubEnvironment=(environment)=>{
+    setHosthub((current)=>({
+      ...current,
+      environment,
+      baseUrl:hosthubBaseFor(environment),
+      apiKey:'',
+    }));
+    setHosthubState({saving:false,testing:false,error:'',message:''});
+  };
+
+  const saveHosthub=async()=>{
+    if(!String(hosthub.apiKey||'').trim()){
+      setHosthubState({saving:false,testing:false,error:'Enter the Hosthub API key first.',message:''});
+      return;
+    }
+    setHosthubState({saving:true,testing:false,error:'',message:''});
+    try {
+      const response=await api.put('/integrations/hosthub/credentials',{
+        environment:hosthub.environment,
+        baseUrl:hosthub.baseUrl,
+        apiKey:hosthub.apiKey,
+      });
+      const data=response.data||{};
+      setHosthub((current)=>({...current,configured:true,source:'database',apiKey:'',updatedAt:data.updatedAt||new Date().toISOString()}));
+      setHosthubState({saving:false,testing:false,error:'',message:'Hosthub API key saved securely.'});
+    } catch(err){
+      setHosthubState({saving:false,testing:false,error:err.response?.data?.message||err.message||'Could not save Hosthub credentials.',message:''});
+    }
+  };
+
+  const testHosthub=async()=>{
+    setHosthubState({saving:false,testing:true,error:'',message:''});
+    try {
+      const response=await api.post('/integrations/hosthub/test');
+      const data=response.data||{};
+      setHosthub((current)=>({...current,configured:true,rentalCount:data.rentalCount??0,lastSyncAt:new Date().toISOString()}));
+      setHosthubState({saving:false,testing:false,error:'',message:`Hosthub connected successfully · ${data.rentalCount??0} rentals found.`});
+    } catch(err){
+      setHosthubState({saving:false,testing:false,error:err.response?.data?.message||err.message||'Hosthub connection test failed.',message:''});
+    }
+  };
+
+  const removeHosthub=async()=>{
+    if(!window.confirm('Remove the saved Hosthub API key for this environment?')) return;
+    setHosthubState({saving:true,testing:false,error:'',message:''});
+    try {
+      await api.delete('/integrations/hosthub/credentials',{params:{environment:hosthub.environment}});
+      setHosthub((current)=>({...current,configured:false,source:'none',apiKey:'',rentalCount:null}));
+      setHosthubState({saving:false,testing:false,error:'',message:'Hosthub credentials removed.'});
+    } catch(err){
+      setHosthubState({saving:false,testing:false,error:err.response?.data?.message||err.message||'Could not remove Hosthub credentials.',message:''});
+    }
+  };
+
   const authorized=Boolean(status?.authorized || status?.connected);
   const ready=Boolean(status?.connected && status?.dataStatus==='ready');
   const missingScopes=diagnostics?.missingScopes || [];
@@ -112,7 +183,7 @@ const SettingsPage = () => {
   return <div className="space-y-6">
     <PageHeader
       title="Developer Settings"
-      description="Administrator-only configuration: users and roles, Cloudbeds authorization, operational defaults and technical audit."
+      description="Administrator-only configuration: users and roles, Cloudbeds + Hosthub integrations, operational defaults and technical audit."
       actions={<div className="flex flex-wrap gap-2"><button onClick={refresh} disabled={loading} className="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 disabled:opacity-60">{loading?'Checking…':'Test sync'}</button>{!apiKeyMode&&(authorized?<button onClick={reauthorize} className="rounded-lg bg-amber-600 px-3.5 py-2 text-sm font-semibold text-white">Re-authorize Cloudbeds</button>:<button onClick={connect} className="rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white">Connect Cloudbeds</button>)}</div>}
     />
 
@@ -165,6 +236,31 @@ const SettingsPage = () => {
         <div className="sm:col-span-2 flex items-center justify-end gap-3"><span className={`text-xs ${opsState==='error'?'text-rose-600':'text-emerald-600'}`}>{opsState==='saved'?'Saved':opsState==='error'?'Save failed':''}</span><button onClick={saveOps} disabled={opsState==='saving'} className="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">{opsState==='saving'?'Saving…':'Save developer settings'}</button></div>
       </div></Panel>
     </div>
+
+    <Panel title="Hosthub connection" description="Super Admin only. Store the Hosthub sandbox or production API key securely inside SEM PMS; the key is never returned to the browser after saving.">
+      <div className="grid gap-4 p-5 lg:grid-cols-2">
+        <div className="space-y-4">
+          <label><span className="mb-1.5 block text-xs font-semibold text-slate-600">Environment</span><select value={hosthub.environment} onChange={e=>changeHosthubEnvironment(e.target.value)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm"><option value="sandbox">Sandbox (eric.hosthub.com)</option><option value="production">Production (app.hosthub.com)</option></select></label>
+          <Field label="API base URL" value={hosthub.baseUrl} onChange={v=>setHosthub({...hosthub,baseUrl:v})}/>
+          <Field label={hosthub.configured?'Replace API key':'API key'} type="password" value={hosthub.apiKey} onChange={v=>setHosthub({...hosthub,apiKey:v})}/>
+          <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] leading-5 text-slate-600">The key is encrypted in MariaDB using the PMS integration secret. After save, Settings only shows whether a key exists — never the key itself.</div>
+          {(hosthubState.error||hosthubState.message)&&<div className={`rounded-lg border px-3 py-2 text-xs font-semibold ${hosthubState.error?'border-rose-200 bg-rose-50 text-rose-700':'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>{hosthubState.error||hosthubState.message}</div>}
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={saveHosthub} disabled={hosthubState.saving} className="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">{hosthubState.saving?'Saving…':hosthub.configured?'Replace Hosthub key':'Save Hosthub key'}</button>
+            <button type="button" onClick={testHosthub} disabled={!hosthub.configured||hosthubState.testing} className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 disabled:opacity-50">{hosthubState.testing?'Testing…':'Test Hosthub'}</button>
+            {hosthub.configured&&<button type="button" onClick={removeHosthub} className="rounded-lg border border-rose-300 bg-white px-4 py-2.5 text-sm font-bold text-rose-700">Remove key</button>}
+          </div>
+        </div>
+        <div className="space-y-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <Row label="Status" value={<StatusBadge status={hosthub.configured?'healthy':'not connected'}/>}/>
+          <Row label="Environment" value={hosthub.environment}/>
+          <Row label="Credential source" value={hosthub.source==='database'?'Encrypted PMS database':hosthub.source==='environment'?'Legacy server environment':'Not configured'}/>
+          <Row label="API URL" value={hosthub.baseUrl}/>
+          <Row label="Rentals detected" value={hosthub.rentalCount===null?'Run connection test':String(hosthub.rentalCount)}/>
+          <Row label="Last sync" value={hosthub.lastSyncAt?formatDateTime(hosthub.lastSyncAt):'No successful test yet'}/>
+        </div>
+      </div>
+    </Panel>
 
     <Panel title="Cloudbeds permission model" description="Reservation, guest, room-block and item permissions are used by PMS operations. No Cloudbeds housekeeping scope is required.">
       <div className="grid gap-3 p-5 sm:grid-cols-2 xl:grid-cols-4">{requestedScopes.map(scope=>{const missing=missingScopes.includes(scope);const write=String(scope).startsWith('write:');return <div key={scope} className={`rounded-xl border p-4 ${missing?'border-amber-200 bg-amber-50':write?'border-blue-200 bg-blue-50':'border-emerald-200 bg-emerald-50'}`}><div className="font-mono text-xs font-bold text-slate-900">{scope}</div><div className="mt-2 text-[11px] text-slate-600">{missing?'Permission needs attention':write?'Controlled PMS write permission':'Read permission'}</div></div>;})}</div>
