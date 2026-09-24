@@ -28,8 +28,6 @@ const SettingsPage = () => {
   const [newUser,setNewUser]=useState(emptyUser);
   const [userState,setUserState]=useState({saving:false,error:'',message:''});
   const [passwordDrafts,setPasswordDrafts]=useState({});
-  const [hosthub,setHosthub]=useState({ environment:'sandbox', baseUrl:'https://eric.hosthub.com/api/2019-03-01', configured:false, source:'none', rentalCount:null, lastSyncAt:null });
-  const [hosthubState,setHosthubState]=useState({testing:false,error:'',message:''});
 
   const loadUsers = async () => {
     try {
@@ -54,24 +52,13 @@ const SettingsPage = () => {
       getWriteAudit(100),
       api.get('/admin/users'),
       api.get('/admin/roles'),
-      api.get('/integrations/hosthub/status'),
-    ]).then(([cloud,settings,writes,userResult,roleResult,hosthubResult])=>{
+    ]).then(([cloud,settings,writes,userResult,roleResult])=>{
       if(!active)return;
       if(cloud.status==='fulfilled') setRuntime(cloud.value.data); else setRuntimeError(cloud.reason?.response?.data?.message || cloud.reason?.message || 'Could not load Cloudbeds runtime configuration.');
       if(settings.status==='fulfilled') setOps((current)=>({...current,...(settings.value.data||{})}));
       if(writes.status==='fulfilled') setAudit(writes.value||[]); else setAuditError(writes.reason?.response?.data?.message || writes.reason?.message || 'Could not load write audit.');
       if(userResult.status==='fulfilled') setUsers(userResult.value.data?.data||[]);
       if(roleResult.status==='fulfilled') setRoles(roleResult.value.data?.data||[]);
-      if(hosthubResult.status==='fulfilled') {
-        const data=hosthubResult.value.data||{};
-        setHosthub((current)=>({
-          ...current,
-          environment:data.environment||'sandbox',
-          baseUrl:data.baseUrl||current.baseUrl,
-          configured:Boolean(data.configured),
-          source:data.source||'none',
-        }));
-      }
     });
     return()=>{active=false;};
   },[getWriteAudit]);
@@ -113,17 +100,6 @@ const SettingsPage = () => {
     catch { setOpsState('error'); }
   };
 
-  const testHosthub=async()=>{
-    setHosthubState({testing:true,error:'',message:''});
-    try {
-      const response=await api.post('/integrations/hosthub/test');
-      const data=response.data||{};
-      setHosthub((current)=>({...current,configured:true,rentalCount:data.rentalCount??0,lastSyncAt:new Date().toISOString()}));
-      setHosthubState({testing:false,error:'',message:`Hosthub connected successfully · ${data.rentalCount??0} rentals found.`});
-    } catch(err){
-      setHosthubState({testing:false,error:err.response?.data?.message||err.message||'Hosthub connection test failed.',message:''});
-    }
-  };
 
   const authorized=Boolean(status?.authorized || status?.connected);
   const ready=Boolean(status?.connected && status?.dataStatus==='ready');
@@ -137,7 +113,7 @@ const SettingsPage = () => {
   return <div className="space-y-6">
     <PageHeader
       title="Developer Settings"
-      description="Administrator-only configuration: users and roles, Cloudbeds + Hosthub integrations, operational defaults and technical audit."
+      description="Administrator-only configuration: users and roles, Cloudbeds authorization, operational defaults and technical audit."
       actions={<div className="flex flex-wrap gap-2"><button onClick={refresh} disabled={loading} className="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 disabled:opacity-60">{loading?'Checking…':'Test sync'}</button>{!apiKeyMode&&(authorized?<button onClick={reauthorize} className="rounded-lg bg-amber-600 px-3.5 py-2 text-sm font-semibold text-white">Re-authorize Cloudbeds</button>:<button onClick={connect} className="rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white">Connect Cloudbeds</button>)}</div>}
     />
 
@@ -191,25 +167,6 @@ const SettingsPage = () => {
       </div></Panel>
     </div>
 
-    <Panel title="Hosthub connection" description="Connection status only. Hosthub credentials are configured in the same protected server environment used for Cloudbeds credentials.">
-      <div className="grid gap-4 p-5 lg:grid-cols-2">
-        <div className="space-y-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
-          <Row label="Status" value={<StatusBadge status={hosthub.configured?'healthy':'not connected'}/>}/>
-          <Row label="Environment" value={hosthub.environment}/>
-          <Row label="Credential source" value={hosthub.source==='environment'?'Protected server environment':'Not configured'}/>
-          <Row label="API URL" value={hosthub.baseUrl}/>
-          <Row label="Rentals detected" value={hosthub.rentalCount===null?'Run connection test':String(hosthub.rentalCount)}/>
-          <Row label="Last test" value={hosthub.lastSyncAt?formatDateTime(hosthub.lastSyncAt):'No successful test yet'}/>
-        </div>
-        <div className="space-y-4">
-          <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm leading-6 text-slate-600">
-            Hosthub credentials are not editable from the PMS UI. They stay with the Cloudbeds credentials in the protected backend environment on the production server.
-          </div>
-          {(hosthubState.error||hosthubState.message)&&<div className={`rounded-lg border px-3 py-2 text-xs font-semibold ${hosthubState.error?'border-rose-200 bg-rose-50 text-rose-700':'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>{hosthubState.error||hosthubState.message}</div>}
-          <button type="button" onClick={testHosthub} disabled={!hosthub.configured||hosthubState.testing} className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 disabled:opacity-50">{hosthubState.testing?'Testing…':'Test Hosthub connection'}</button>
-        </div>
-      </div>
-    </Panel>
 
     <Panel title="Cloudbeds permission model" description="Reservation, guest, room-block and item permissions are used by PMS operations. No Cloudbeds housekeeping scope is required.">
       <div className="grid gap-3 p-5 sm:grid-cols-2 xl:grid-cols-4">{requestedScopes.map(scope=>{const missing=missingScopes.includes(scope);const write=String(scope).startsWith('write:');return <div key={scope} className={`rounded-xl border p-4 ${missing?'border-amber-200 bg-amber-50':write?'border-blue-200 bg-blue-50':'border-emerald-200 bg-emerald-50'}`}><div className="font-mono text-xs font-bold text-slate-900">{scope}</div><div className="mt-2 text-[11px] text-slate-600">{missing?'Permission needs attention':write?'Controlled PMS write permission':'Read permission'}</div></div>;})}</div>
